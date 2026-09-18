@@ -155,7 +155,7 @@ async function verifyRequestNetwork(req) {
   const rawRemote = normalizeIp(forwarded || realIp || req.socket?.remoteAddress || '127.0.0.1');
 
   const isLoopback = rawRemote === '127.0.0.1' || rawRemote === '::1' || rawRemote === 'localhost';
-  const activeNetworks = dbHelpers.getActiveNetworks();
+  const activeNetworks = await dbHelpers.getActiveNetworks();
 
   let candidateIps = [];
   let displayIp = rawRemote;

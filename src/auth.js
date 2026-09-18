@@ -1,6 +1,6 @@
 const dbHelpers = require('./db');
 
-function authenticate(req, res, next) {
+async function authenticate(req, res, next) {
   let token = req.cookies?.session_token;
 
   if (!token && req.headers.authorization) {
@@ -11,17 +11,21 @@ function authenticate(req, res, next) {
   }
 
   if (token) {
-    const session = dbHelpers.getSession(token);
-    if (session) {
-      req.user = {
-        id: session.employee_id,
-        name: session.name,
-        email: session.email,
-        role: session.role,
-        department: session.department,
-        employee_code: session.employee_code,
-        token
-      };
+    try {
+      const session = await dbHelpers.getSession(token);
+      if (session) {
+        req.user = {
+          id: session.employee_id,
+          name: session.name,
+          email: session.email,
+          role: session.role,
+          department: session.department,
+          employee_code: session.employee_code,
+          token
+        };
+      }
+    } catch (e) {
+      // Ignore token check error
     }
   }
 

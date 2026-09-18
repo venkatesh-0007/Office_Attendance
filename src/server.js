@@ -19,7 +19,7 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(cookieParser());
 
-// Trust proxy for reverse proxy setups (Nginx, Cloudflare, AWS ALB)
+// Trust proxy for reverse proxy setups (Vercel, Cloudflare, AWS ALB)
 app.set('trust proxy', true);
 
 // Auth middleware for all routes
@@ -76,13 +76,13 @@ app.get('/api/network/status', async (req, res) => {
 });
 
 // Authentication: Login
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const { email, pin } = req.body;
   if (!email || !pin) {
     return res.status(400).json({ error: 'Work email and PIN/Password are required.' });
   }
 
-  const employee = dbHelpers.getEmployeeByEmail(email);
+  const employee = await dbHelpers.getEmployeeByEmail(email);
   if (!employee) {
     return res.status(401).json({ error: 'Invalid email or PIN.' });
   }
@@ -93,7 +93,7 @@ app.post('/api/auth/login', (req, res) => {
   }
 
   const userAgent = req.headers['user-agent'] || '';
-  const { token, expiresAt } = dbHelpers.createSession(employee.id, userAgent);
+  const { token, expiresAt } = await dbHelpers.createSession(employee.id, userAgent);
 
   // Set persistent cookie (30 days on trusted device)
   res.cookie('session_token', token, {
@@ -124,9 +124,9 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
 });
 
 // Authentication: Logout
-app.post('/api/auth/logout', (req, res) => {
+app.post('/api/auth/logout', async (req, res) => {
   if (req.user?.token) {
-    dbHelpers.deleteSession(req.user.token);
+    await dbHelpers.deleteSession(req.user.token);
   }
   res.clearCookie('session_token');
   res.json({ success: true, message: 'Logged out successfully' });
@@ -139,7 +139,7 @@ app.post('/api/auth/logout', (req, res) => {
 // Today's attendance status for logged-in employee
 app.get('/api/attendance/today', requireAuth, async (req, res) => {
   const todayDate = dbHelpers.getLocalDateString();
-  const attendance = dbHelpers.getTodayAttendance(req.user.id, todayDate);
+  const attendance = await dbHelpers.getTodayAttendance(req.user.id, todayDate);
   const netStatus = await verifyRequestNetwork(req);
 
   let formatted = null;
@@ -184,7 +184,7 @@ app.post('/api/attendance/check-in', requireAuth, async (req, res) => {
   const todayDate = dbHelpers.getLocalDateString(now);
 
   // Check if already checked in today
-  const existing = dbHelpers.getTodayAttendance(req.user.id, todayDate);
+  const existing = await dbHelpers.getTodayAttendance(req.user.id, todayDate);
   if (existing) {
     return res.status(400).json({
       error: 'You have already checked in for today.',
@@ -202,7 +202,7 @@ app.post('/api/attendance/check-in', requireAuth, async (req, res) => {
   const checkInIso = now.toISOString();
 
   try {
-    const record = dbHelpers.recordCheckIn({
+    const record = await dbHelpers.recordCheckIn({
       employeeId: req.user.id,
       name: req.user.name,
       dateStr: todayDate,
@@ -242,7 +242,7 @@ app.post('/api/attendance/check-out', requireAuth, async (req, res) => {
   const now = new Date();
   const todayDate = dbHelpers.getLocalDateString(now);
 
-  const existing = dbHelpers.getTodayAttendance(req.user.id, todayDate);
+  const existing = await dbHelpers.getTodayAttendance(req.user.id, todayDate);
   if (!existing) {
     return res.status(400).json({
       error: 'You have not checked in yet today.',
@@ -263,7 +263,7 @@ app.post('/api/attendance/check-out', requireAuth, async (req, res) => {
   const status = existing.status === 'late' ? 'late' : 'present';
 
   try {
-    const updated = dbHelpers.recordCheckOut({
+    const updated = await dbHelpers.recordCheckOut({
       attendanceId: existing.id,
       checkOutIso,
       status
@@ -286,8 +286,8 @@ app.post('/api/attendance/check-out', requireAuth, async (req, res) => {
 });
 
 // Employee personal attendance history
-app.get('/api/attendance/history', requireAuth, (req, res) => {
-  const history = dbHelpers.getAttendanceHistory(req.user.id, 30);
+app.get('/api/attendance/history', requireAuth, async (req, res) => {
+  const history = await dbHelpers.getAttendanceHistory(req.user.id, 30);
   const formatted = history.map(item => {
     let durationMs = null;
     if (item.check_in_time && item.check_out_time) {
@@ -309,9 +309,9 @@ app.get('/api/attendance/history', requireAuth, (req, res) => {
 // -------------------------------------------------------------
 
 // Admin Dashboard Summary & Live Attendance Table
-app.get('/api/admin/dashboard', requireAdmin, (req, res) => {
+app.get('/api/admin/dashboard', requireAdmin, async (req, res) => {
   const queryDate = req.query.date || dbHelpers.getLocalDateString();
-  const rawRecords = dbHelpers.getAttendanceByDate(queryDate);
+  const rawRecords = await dbHelpers.getAttendanceByDate(queryDate);
 
   let presentCount = 0;
   let inOfficeCount = 0;
@@ -373,14 +373,14 @@ app.get('/api/admin/dashboard', requireAdmin, (req, res) => {
 });
 
 // Admin: Export Attendance to CSV
-app.get('/api/admin/export-csv', requireAdmin, (req, res) => {
+app.get('/api/admin/export-csv', requireAdmin, async (req, res) => {
   const { startDate, endDate, date } = req.query;
   let records;
 
   if (date) {
-    records = dbHelpers.getAttendanceByDate(date);
+    records = await dbHelpers.getAttendanceByDate(date);
   } else {
-    records = dbHelpers.getAllAttendanceRecords({ startDate, endDate });
+    records = await dbHelpers.getAllAttendanceRecords({ startDate, endDate });
   }
 
   const csvHeaders = [
@@ -433,7 +433,7 @@ app.get('/api/admin/export-csv', requireAdmin, (req, res) => {
 
 // Admin: Get Office Networks and Current System Environment
 app.get('/api/admin/networks', requireAdmin, async (req, res) => {
-  const networks = dbHelpers.getAllNetworks();
+  const networks = await dbHelpers.getAllNetworks();
   const systemInfo = await getSystemNetworkInfo();
   const currentNetStatus = await verifyRequestNetwork(req);
 
@@ -446,18 +446,18 @@ app.get('/api/admin/networks', requireAdmin, async (req, res) => {
 
 // Admin 1-Click: Set current network as authorized Office Wi-Fi
 app.post('/api/admin/networks/set-current', requireAdmin, async (req, res) => {
-  const { mode = 'public_ip', custom_name } = req.body;
+  const { mode = 'both', custom_name } = req.body;
   const systemInfo = await getSystemNetworkInfo();
   invalidatePublicIpCache();
 
   // Clear previous office networks so the new Wi-Fi is active and authoritative immediately
-  dbHelpers.clearAllNetworks();
+  await dbHelpers.clearAllNetworks();
 
   const added = [];
 
   if (mode === 'public_ip' || mode === 'both') {
     if (systemInfo.publicIp && systemInfo.publicIp !== 'Unavailable') {
-      const net = dbHelpers.addNetwork({
+      const net = await dbHelpers.addNetwork({
         name: custom_name || `Office Public Gateway (${systemInfo.publicIp})`,
         ip_or_cidr: systemInfo.publicIp,
         description: 'Office WAN Public IP (Authorized for All Devices on Office Wi-Fi)'
@@ -468,7 +468,7 @@ app.post('/api/admin/networks/set-current', requireAdmin, async (req, res) => {
 
   if (mode === 'subnet' || mode === 'both') {
     if (systemInfo.primarySubnet && systemInfo.primarySubnet !== 'Unavailable') {
-      const net = dbHelpers.addNetwork({
+      const net = await dbHelpers.addNetwork({
         name: `Office Local Subnet (${systemInfo.primarySubnet})`,
         ip_or_cidr: systemInfo.primarySubnet,
         description: `Local Office Wi-Fi Interface (${systemInfo.interfaceName})`
@@ -483,13 +483,13 @@ app.post('/api/admin/networks/set-current', requireAdmin, async (req, res) => {
   res.json({
     success: true,
     message: 'Office Wi-Fi network updated and activated successfully!',
-    networks: dbHelpers.getAllNetworks(),
+    networks: await dbHelpers.getAllNetworks(),
     current_request: currentNetStatus
   });
 });
 
 // Admin: Add specific Office IP or CIDR
-app.post('/api/admin/networks', requireAdmin, (req, res) => {
+app.post('/api/admin/networks', requireAdmin, async (req, res) => {
   const { name, ip_or_cidr, description } = req.body;
 
   if (!name || !ip_or_cidr) {
@@ -514,7 +514,7 @@ app.post('/api/admin/networks', requireAdmin, (req, res) => {
   }
 
   try {
-    const created = dbHelpers.addNetwork({
+    const created = await dbHelpers.addNetwork({
       name: name.trim(),
       ip_or_cidr: cleanInput,
       description: description?.trim() || ''
@@ -522,7 +522,7 @@ app.post('/api/admin/networks', requireAdmin, (req, res) => {
     invalidatePublicIpCache();
     res.json({ success: true, message: 'Office network authorized successfully.', network: created });
   } catch (err) {
-    if (err.message?.includes('UNIQUE constraint failed')) {
+    if (err.message?.includes('UNIQUE constraint failed') || err.message?.includes('already configured')) {
       return res.status(400).json({ error: 'This IP or CIDR is already configured.' });
     }
     res.status(500).json({ error: 'Failed to add office network.' });
@@ -530,31 +530,31 @@ app.post('/api/admin/networks', requireAdmin, (req, res) => {
 });
 
 // Admin: Clear all office networks
-app.post('/api/admin/networks/clear-all', requireAdmin, (req, res) => {
-  dbHelpers.clearAllNetworks();
+app.post('/api/admin/networks/clear-all', requireAdmin, async (req, res) => {
+  await dbHelpers.clearAllNetworks();
   invalidatePublicIpCache();
   res.json({ success: true, message: 'All configured office networks cleared.' });
 });
 
 // Admin: Delete a network
-app.delete('/api/admin/networks/:id', requireAdmin, (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (isNaN(id)) {
+app.delete('/api/admin/networks/:id', requireAdmin, async (req, res) => {
+  const id = req.params.id;
+  if (!id) {
     return res.status(400).json({ error: 'Invalid network ID.' });
   }
 
-  dbHelpers.deleteNetwork(id);
+  await dbHelpers.deleteNetwork(id);
   invalidatePublicIpCache();
   res.json({ success: true, message: 'Network removed from authorized list.' });
 });
 
 // Admin: Manage Employees
-app.get('/api/admin/employees', requireAdmin, (req, res) => {
-  const employees = dbHelpers.getAllEmployees();
+app.get('/api/admin/employees', requireAdmin, async (req, res) => {
+  const employees = await dbHelpers.getAllEmployees();
   res.json({ employees });
 });
 
-app.post('/api/admin/employees', requireAdmin, (req, res) => {
+app.post('/api/admin/employees', requireAdmin, async (req, res) => {
   const { name, email, department, role, pin } = req.body;
 
   if (!name || !email || !pin) {
@@ -562,7 +562,7 @@ app.post('/api/admin/employees', requireAdmin, (req, res) => {
   }
 
   try {
-    const employee = dbHelpers.createEmployee({
+    const employee = await dbHelpers.createEmployee({
       name,
       email,
       department,
@@ -571,7 +571,7 @@ app.post('/api/admin/employees', requireAdmin, (req, res) => {
     });
     res.json({ success: true, message: 'Employee registered successfully.', employee });
   } catch (err) {
-    if (err.message?.includes('UNIQUE constraint failed')) {
+    if (err.message?.includes('UNIQUE constraint failed') || err.message?.includes('already exists')) {
       return res.status(400).json({ error: 'An employee with this email already exists.' });
     }
     res.status(500).json({ error: 'Failed to create employee.' });
@@ -586,7 +586,7 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
-// Start server
+// Start server when run directly
 if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`[PulseOffice Server] running on http://localhost:${PORT}`);

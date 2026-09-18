@@ -2,6 +2,8 @@
 
 A simple, responsive, and secure **Office Attendance Website** for employees and administrators with server-side office network verification.
 
+Works seamlessly on **local servers** and **cloud serverless deployments (Vercel + Firebase Firestore)**.
+
 ---
 
 ## Features
@@ -15,6 +17,8 @@ A simple, responsive, and secure **Office Attendance Website** for employees and
   - Server records exact server-side timestamp and marks employee as **Checked In**.
   - Live working duration stopwatch ticks in real time.
   - At the end of the day, employee clicks **“Check Out”** to finalize their hours.
+- **Vercel & Firebase Ready**:
+  - Pluggable database layer: runs offline locally on embedded SQLite, or connects to **Firebase Firestore** when deployed to **Vercel**.
 - **Responsive Across Devices**:
   - Optimized for desktop browsers, laptop browsers, iPhones, and Android phones.
 - **Admin Dashboard**:
@@ -24,25 +28,6 @@ A simple, responsive, and secure **Office Attendance Website** for employees and
   - **1-Click Export to CSV** for payroll and reporting.
   - **Office Wi-Fi Setup**: Auto-detects connected network and allows 1-click authorization of the office public gateway or local Wi-Fi subnet.
   - Staff management directory (register new employees).
-- **Embedded Database**:
-  - Zero external database dependencies — uses Node's high-performance built-in SQLite engine (`node:sqlite`).
-
----
-
-## Quick Start
-
-### 1. Install Dependencies
-```bash
-npm install
-```
-
-### 2. Start the Server
-```bash
-npm start
-```
-The server will run at:
-- **Local machine**: `http://localhost:3000`
-- **Other devices on office Wi-Fi**: `http://<YOUR_LOCAL_IP>:3000` (e.g. `http://192.168.1.133:3000`)
 
 ---
 
@@ -54,6 +39,49 @@ The server will run at:
 | **Employee** | `ven@office.local` | `1234` |
 
 *(Additional employees can be registered anytime from the Admin Console)*
+
+---
+
+## Deploying to Vercel with Firebase Firestore
+
+### Step 1: Create a Free Firebase Project
+1. Go to [console.firebase.google.com](https://console.firebase.google.com/).
+2. Click **Add Project** and give it a name (e.g. `pulse-office`).
+3. In the Firebase console left sidebar, navigate to **Build -> Firestore Database**.
+4. Click **Create Database** -> Choose **Start in production mode** (or test mode) -> Select a location close to your office.
+
+### Step 2: Generate Service Account Key
+1. In Firebase Console, click the **Gear Icon (Project Settings)** in the top left.
+2. Go to the **Service Accounts** tab.
+3. Click **Generate new private key** -> Click **Generate key**.
+4. A JSON file will download to your computer. Open it in a text editor.
+
+### Step 3: Deploy to Vercel
+1. Push this repository to your GitHub:
+   ```bash
+   git push origin main
+   ```
+2. Go to [vercel.com](https://vercel.com/) and click **Add New -> Project**.
+3. Import your GitHub repository (`Office_Attendance`).
+4. In **Environment Variables**, add the values from your downloaded Firebase JSON:
+   - `FIREBASE_PROJECT_ID`: your project id
+   - `FIREBASE_CLIENT_EMAIL`: the `client_email` value
+   - `FIREBASE_PRIVATE_KEY`: the entire `private_key` string (including `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----`)
+5. Click **Deploy**!
+
+---
+
+## Local Development (Offline with SQLite)
+
+To run the application locally on your computer:
+```bash
+# 1. Install dependencies
+npm install
+
+# 2. Start server
+npm start
+```
+Open **`http://localhost:3000`** in your browser.
 
 ---
 
@@ -69,7 +97,7 @@ The server will run at:
 
 ## Running Tests
 
-Run the comprehensive automated test suite:
+Run the automated test suite:
 ```bash
 npm test
 ```
