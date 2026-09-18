@@ -8,6 +8,7 @@ const {
   verifyRequestNetwork,
   getSystemNetworkInfo,
   invalidatePublicIpCache,
+  getClientIp,
   normalizeIp
 } = require('./networkVerifier');
 const { authenticate, requireAuth, requireAdmin } = require('./auth');
@@ -20,27 +21,81 @@ app.use(express.json());
 app.use(cookieParser());
 
 // Trust proxy for reverse proxy setups (Vercel, Cloudflare, AWS ALB)
-app.set('trust proxy', true);
+app.set('trust proxy', 1);
 
 // Auth middleware for all routes
 app.use(authenticate);
 
-// Format durations in human readable form (e.g. '8h 24m')
+// Security (Problem 6): Force PIN Change guard for default credentials
+app.use((req, res, next) => {
+  if (req.user && req.user.must_change_pin && 
+      !req.path.startsWith('/api/auth/') && 
+      req.path !== '/api/network/status' &&
+      !req.path.startsWith('/css/') && 
+      !req.path.startsWith('/js/') && 
+      req.path !== '/') {
+    return res.status(403).json({
+      error: 'Default PIN in use. You must change your PIN before accessing attendance functions.',
+      code: 'MUST_CHANGE_PIN'
+    });
+  }
+  next();
+});
+
+// -------------------------------------------------------------
+// Security: In-Memory Login Rate Limiter & Lockout (Problem 7)
+// -------------------------------------------------------------
+const failedLoginTracker = new Map();
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes lockout
+
+function checkLoginRateLimit(key) {
+  const record = failedLoginTracker.get(key);
+  if (!record) return { isLocked: false };
+
+  const now = Date.now();
+  if (record.lockUntil && record.lockUntil > now) {
+    const remainingMinutes = Math.ceil((record.lockUntil - now) / 60000);
+    return { isLocked: true, remainingMinutes };
+  }
+
+  // Lockout expired, reset
+  if (record.lockUntil && record.lockUntil <= now) {
+    failedLoginTracker.delete(key);
+    return { isLocked: false };
+  }
+
+  return { isLocked: false };
+}
+
+function recordFailedLogin(key) {
+  const now = Date.now();
+  const record = failedLoginTracker.get(key) || { count: 0, firstAttempt: now };
+
+  record.count += 1;
+  if (record.count >= MAX_FAILED_ATTEMPTS) {
+    record.lockUntil = now + LOCKOUT_DURATION_MS;
+  }
+  failedLoginTracker.set(key, record);
+}
+
+function clearFailedLogin(key) {
+  failedLoginTracker.delete(key);
+}
+
+// -------------------------------------------------------------
+// Helpers: Duration & Formatting
+// -------------------------------------------------------------
 function formatDuration(ms) {
   if (ms == null || isNaN(ms) || ms < 0) return '—';
   const totalSeconds = Math.floor(ms / 1000);
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
-  if (hours === 0 && minutes === 0) {
-    return '< 1m';
-  }
-  if (hours === 0) {
-    return `${minutes}m`;
-  }
+  if (hours === 0 && minutes === 0) return '< 1m';
+  if (hours === 0) return `${minutes}m`;
   return `${hours}h ${String(minutes).padStart(2, '0')}m`;
 }
 
-// Format time string to 12-hour format: '09:18 AM' or '09:18:42 AM'
 function formatTime(isoString, includeSeconds = false) {
   if (!isoString) return '—';
   try {
@@ -68,44 +123,83 @@ app.get('/api/network/status', async (req, res) => {
     const netStatus = await verifyRequestNetwork(req);
     res.json({
       status: 'ok',
-      network: netStatus
+      network: netStatus,
+      disclaimer: 'Office Network Verification verifies connection to authorized office Wi-Fi networks.'
     });
   } catch (err) {
     res.status(500).json({ error: 'Failed to verify network status.' });
   }
 });
 
-// Authentication: Login
+// Authentication: Login with Rate Limiting & HttpOnly Cookie Only
 app.post('/api/auth/login', async (req, res) => {
   const { email, pin } = req.body;
+  const clientIp = getClientIp(req);
+
   if (!email || !pin) {
     return res.status(400).json({ error: 'Work email and PIN/Password are required.' });
   }
 
-  const employee = await dbHelpers.getEmployeeByEmail(email);
+  const cleanEmail = email.toLowerCase().trim();
+  const rateLimitKey = `${clientIp}_${cleanEmail}`;
+
+  // Check brute-force lockout
+  const { isLocked, remainingMinutes } = checkLoginRateLimit(rateLimitKey);
+  if (isLocked) {
+    return res.status(429).json({
+      error: `Too many failed login attempts. Account temporarily locked. Please try again in ${remainingMinutes} minute(s).`
+    });
+  }
+
+  const employee = await dbHelpers.getEmployeeByEmail(cleanEmail);
   if (!employee) {
+    recordFailedLogin(rateLimitKey);
+    await dbHelpers.addAuditLog({
+      action: 'LOGIN_FAILED',
+      details: `Failed login attempt for non-existent email: ${cleanEmail}`,
+      ipAddress: clientIp
+    });
     return res.status(401).json({ error: 'Invalid email or PIN.' });
   }
 
   const isValid = dbHelpers.verifyPin(String(pin).trim(), employee.pin_hash, employee.salt);
   if (!isValid) {
+    recordFailedLogin(rateLimitKey);
+    await dbHelpers.addAuditLog({
+      userId: employee.id,
+      userName: employee.name,
+      action: 'LOGIN_FAILED',
+      details: `Failed PIN attempt for user ${cleanEmail}`,
+      ipAddress: clientIp
+    });
     return res.status(401).json({ error: 'Invalid email or PIN.' });
   }
 
-  const userAgent = req.headers['user-agent'] || '';
-  const { token, expiresAt } = await dbHelpers.createSession(employee.id, userAgent);
+  // Clear rate limit record on successful login
+  clearFailedLogin(rateLimitKey);
 
-  // Set persistent cookie (30 days on trusted device)
+  const userAgent = req.headers['user-agent'] || '';
+  // Role-based session duration: Admins 4h vs Employees 30d
+  const { token, expiresAt, maxAgeMs } = await dbHelpers.createSession(employee.id, employee.role, userAgent);
+
+  // Security (Problem 8): Strictly HttpOnly, SameSite cookie. Token is NOT returned in JSON response!
   res.cookie('session_token', token, {
     httpOnly: true,
     sameSite: 'lax',
-    maxAge: 30 * 24 * 60 * 60 * 1000,
+    maxAge: maxAgeMs,
     secure: process.env.NODE_ENV === 'production'
+  });
+
+  await dbHelpers.addAuditLog({
+    userId: employee.id,
+    userName: employee.name,
+    action: 'LOGIN_SUCCESS',
+    details: `User logged in (${employee.role})`,
+    ipAddress: clientIp
   });
 
   res.json({
     message: 'Login successful',
-    token,
     expiresAt,
     user: {
       id: employee.id,
@@ -113,9 +207,40 @@ app.post('/api/auth/login', async (req, res) => {
       email: employee.email,
       role: employee.role,
       department: employee.department,
-      employee_code: employee.employee_code
+      employee_code: employee.employee_code,
+      must_change_pin: Boolean(employee.must_change_pin)
     }
   });
+});
+
+// Force PIN Change for default/initial credentials (Problem 6)
+app.post('/api/auth/change-pin', requireAuth, async (req, res) => {
+  const { newPin } = req.body;
+  const clientIp = getClientIp(req);
+
+  if (!newPin || String(newPin).trim().length < 4) {
+    return res.status(400).json({ error: 'New PIN must be at least 4 characters long.' });
+  }
+
+  const trimmedPin = String(newPin).trim();
+  if (trimmedPin === '1234' || trimmedPin === '0000' || trimmedPin === '1111') {
+    return res.status(400).json({ error: 'Please choose a stronger PIN than the default common values.' });
+  }
+
+  try {
+    await dbHelpers.updatePin(req.user.id, trimmedPin);
+    await dbHelpers.addAuditLog({
+      userId: req.user.id,
+      userName: req.user.name,
+      action: 'PIN_CHANGED',
+      details: 'User updated their security PIN',
+      ipAddress: clientIp
+    });
+
+    res.json({ success: true, message: 'PIN updated successfully. Your account is now secured.' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update PIN.' });
+  }
 });
 
 // Authentication: Current User
@@ -125,8 +250,16 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
 
 // Authentication: Logout
 app.post('/api/auth/logout', async (req, res) => {
+  const clientIp = getClientIp(req);
   if (req.user?.token) {
     await dbHelpers.deleteSession(req.user.token);
+    await dbHelpers.addAuditLog({
+      userId: req.user.id,
+      userName: req.user.name,
+      action: 'LOGOUT',
+      details: 'User logged out',
+      ipAddress: clientIp
+    });
   }
   res.clearCookie('session_token');
   res.json({ success: true, message: 'Logged out successfully' });
@@ -168,9 +301,8 @@ app.get('/api/attendance/today', requireAuth, async (req, res) => {
   });
 });
 
-// Employee Check-In
+// Employee Check-In (Strict backend network verification & atomic duplicate prevention)
 app.post('/api/attendance/check-in', requireAuth, async (req, res) => {
-  // CRITICAL SECURITY REQUIREMENT: Backend authoritatively verifies office network
   const netStatus = await verifyRequestNetwork(req);
   if (!netStatus.isAuthorized) {
     return res.status(403).json({
@@ -211,6 +343,14 @@ app.post('/api/attendance/check-in', requireAuth, async (req, res) => {
       isLate
     });
 
+    await dbHelpers.addAuditLog({
+      userId: req.user.id,
+      userName: req.user.name,
+      action: 'ATTENDANCE_CHECK_IN',
+      details: `Checked in on ${todayDate} (${isLate ? 'Late' : 'On Time'}) via ${verificationMethod}`,
+      ipAddress: netStatus.clientIp
+    });
+
     res.json({
       success: true,
       message: 'Checked in successfully! Have a productive day.',
@@ -222,6 +362,12 @@ app.post('/api/attendance/check-in', requireAuth, async (req, res) => {
       }
     });
   } catch (err) {
+    if (err.message?.includes('UNIQUE constraint') || err.code === 6 || err.message?.includes('already exists')) {
+      return res.status(400).json({
+        error: 'You have already checked in for today.',
+        code: 'ALREADY_CHECKED_IN'
+      });
+    }
     console.error('Error recording check-in:', err);
     res.status(500).json({ error: 'Failed to record attendance. Please try again.' });
   }
@@ -229,7 +375,6 @@ app.post('/api/attendance/check-in', requireAuth, async (req, res) => {
 
 // Employee Check-Out
 app.post('/api/attendance/check-out', requireAuth, async (req, res) => {
-  // CRITICAL SECURITY REQUIREMENT: Backend authoritatively verifies office network
   const netStatus = await verifyRequestNetwork(req);
   if (!netStatus.isAuthorized) {
     return res.status(403).json({
@@ -267,6 +412,14 @@ app.post('/api/attendance/check-out', requireAuth, async (req, res) => {
       attendanceId: existing.id,
       checkOutIso,
       status
+    });
+
+    await dbHelpers.addAuditLog({
+      userId: req.user.id,
+      userName: req.user.name,
+      action: 'ATTENDANCE_CHECK_OUT',
+      details: `Checked out on ${todayDate}. Duration: ${formatDuration(durationMs)}`,
+      ipAddress: netStatus.clientIp
     });
 
     res.json({
@@ -431,7 +584,7 @@ app.get('/api/admin/export-csv', requireAdmin, async (req, res) => {
   res.send(csvContent);
 });
 
-// Admin: Get Office Networks and Current System Environment
+// Admin: Get Office Networks and System Environment
 app.get('/api/admin/networks', requireAdmin, async (req, res) => {
   const networks = await dbHelpers.getAllNetworks();
   const systemInfo = await getSystemNetworkInfo();
@@ -444,53 +597,59 @@ app.get('/api/admin/networks', requireAdmin, async (req, res) => {
   });
 });
 
-// Admin 1-Click: Set current network as authorized Office Wi-Fi
+// Admin: Controlled update of Office Wi-Fi with confirmation requirement (Problem 10)
 app.post('/api/admin/networks/set-current', requireAdmin, async (req, res) => {
-  const { mode = 'both', custom_name } = req.body;
+  const { confirmed = false, custom_name, replaceAll = false } = req.body;
+  const clientIp = getClientIp(req);
+
+  if (!confirmed) {
+    return res.status(400).json({
+      error: 'Confirmation required. Please review the detected IP before authorizing.'
+    });
+  }
+
   const systemInfo = await getSystemNetworkInfo();
   invalidatePublicIpCache();
 
-  // Clear previous office networks so the new Wi-Fi is active and authoritative immediately
-  await dbHelpers.clearAllNetworks();
-
-  const added = [];
-
-  if (mode === 'public_ip' || mode === 'both') {
-    if (systemInfo.publicIp && systemInfo.publicIp !== 'Unavailable') {
-      const net = await dbHelpers.addNetwork({
-        name: custom_name || `Office Public Gateway (${systemInfo.publicIp})`,
-        ip_or_cidr: systemInfo.publicIp,
-        description: 'Office WAN Public IP (Authorized for All Devices on Office Wi-Fi)'
-      });
-      added.push(net);
-    }
+  if (replaceAll) {
+    await dbHelpers.clearAllNetworks();
   }
 
-  if (mode === 'subnet' || mode === 'both') {
-    if (systemInfo.primarySubnet && systemInfo.primarySubnet !== 'Unavailable') {
-      const net = await dbHelpers.addNetwork({
-        name: `Office Local Subnet (${systemInfo.primarySubnet})`,
-        ip_or_cidr: systemInfo.primarySubnet,
-        description: `Local Office Wi-Fi Interface (${systemInfo.interfaceName})`
-      });
-      added.push(net);
-    }
+  const added = [];
+  const targetIp = systemInfo.publicIp !== 'Unavailable' ? systemInfo.publicIp : systemInfo.primaryLocalIp;
+
+  if (targetIp && targetIp !== 'Unavailable') {
+    const net = await dbHelpers.addNetwork({
+      name: custom_name || `Office Wi-Fi (${targetIp})`,
+      ip_or_cidr: targetIp,
+      description: 'Office Gateway IP'
+    });
+    added.push(net);
   }
 
   invalidatePublicIpCache();
   const currentNetStatus = await verifyRequestNetwork(req);
 
+  await dbHelpers.addAuditLog({
+    userId: req.user.id,
+    userName: req.user.name,
+    action: 'NETWORK_AUTHORIZED',
+    details: `Authorized Office Wi-Fi IP: ${targetIp}`,
+    ipAddress: clientIp
+  });
+
   res.json({
     success: true,
-    message: 'Office Wi-Fi network updated and activated successfully!',
+    message: `Office network (${targetIp}) authorized successfully!`,
     networks: await dbHelpers.getAllNetworks(),
     current_request: currentNetStatus
   });
 });
 
-// Admin: Add specific Office IP or CIDR
+// Admin: Add specific Office IP or Subnet
 app.post('/api/admin/networks', requireAdmin, async (req, res) => {
   const { name, ip_or_cidr, description } = req.body;
+  const clientIp = getClientIp(req);
 
   if (!name || !ip_or_cidr) {
     return res.status(400).json({ error: 'Network name and IP / CIDR are required.' });
@@ -498,9 +657,14 @@ app.post('/api/admin/networks', requireAdmin, async (req, res) => {
 
   const cleanInput = ip_or_cidr.trim();
 
-  // Guard against loopback
+  // Strictly block loopback (Problem 2)
   if (cleanInput === '127.0.0.1' || cleanInput === '::1' || cleanInput === 'localhost') {
     return res.status(400).json({ error: 'Loopback address (127.0.0.1) cannot be used as an office Wi-Fi network.' });
+  }
+
+  // Strictly block broad wildcards (Problem 2)
+  if (cleanInput === '192.168.0.0/16' || cleanInput === '10.0.0.0/8' || cleanInput === '172.16.0.0/12' || cleanInput === '0.0.0.0/0') {
+    return res.status(400).json({ error: 'Broad wildcard subnets are not allowed for security reasons. Please use an exact office public IP or specific subnet.' });
   }
 
   try {
@@ -520,6 +684,15 @@ app.post('/api/admin/networks', requireAdmin, async (req, res) => {
       description: description?.trim() || ''
     });
     invalidatePublicIpCache();
+
+    await dbHelpers.addAuditLog({
+      userId: req.user.id,
+      userName: req.user.name,
+      action: 'NETWORK_ADDED',
+      details: `Added network rule: ${name} (${cleanInput})`,
+      ipAddress: clientIp
+    });
+
     res.json({ success: true, message: 'Office network authorized successfully.', network: created });
   } catch (err) {
     if (err.message?.includes('UNIQUE constraint failed') || err.message?.includes('already configured')) {
@@ -529,22 +702,26 @@ app.post('/api/admin/networks', requireAdmin, async (req, res) => {
   }
 });
 
-// Admin: Clear all office networks
-app.post('/api/admin/networks/clear-all', requireAdmin, async (req, res) => {
-  await dbHelpers.clearAllNetworks();
-  invalidatePublicIpCache();
-  res.json({ success: true, message: 'All configured office networks cleared.' });
-});
-
 // Admin: Delete a network
 app.delete('/api/admin/networks/:id', requireAdmin, async (req, res) => {
   const id = req.params.id;
+  const clientIp = getClientIp(req);
+
   if (!id) {
     return res.status(400).json({ error: 'Invalid network ID.' });
   }
 
   await dbHelpers.deleteNetwork(id);
   invalidatePublicIpCache();
+
+  await dbHelpers.addAuditLog({
+    userId: req.user.id,
+    userName: req.user.name,
+    action: 'NETWORK_DELETED',
+    details: `Removed network rule with ID: ${id}`,
+    ipAddress: clientIp
+  });
+
   res.json({ success: true, message: 'Network removed from authorized list.' });
 });
 
@@ -556,6 +733,7 @@ app.get('/api/admin/employees', requireAdmin, async (req, res) => {
 
 app.post('/api/admin/employees', requireAdmin, async (req, res) => {
   const { name, email, department, role, pin } = req.body;
+  const clientIp = getClientIp(req);
 
   if (!name || !email || !pin) {
     return res.status(400).json({ error: 'Name, email, and PIN are required.' });
@@ -569,6 +747,15 @@ app.post('/api/admin/employees', requireAdmin, async (req, res) => {
       role: role || 'employee',
       pin: String(pin).trim()
     });
+
+    await dbHelpers.addAuditLog({
+      userId: req.user.id,
+      userName: req.user.name,
+      action: 'EMPLOYEE_CREATED',
+      details: `Created new staff account: ${employee.name} (${employee.email})`,
+      ipAddress: clientIp
+    });
+
     res.json({ success: true, message: 'Employee registered successfully.', employee });
   } catch (err) {
     if (err.message?.includes('UNIQUE constraint failed') || err.message?.includes('already exists')) {
@@ -576,6 +763,12 @@ app.post('/api/admin/employees', requireAdmin, async (req, res) => {
     }
     res.status(500).json({ error: 'Failed to create employee.' });
   }
+});
+
+// Admin: Audit Logs Trail (Problem 11)
+app.get('/api/admin/audit-logs', requireAdmin, async (req, res) => {
+  const logs = await dbHelpers.getAuditLogs(50);
+  res.json({ logs });
 });
 
 // Serve static frontend assets

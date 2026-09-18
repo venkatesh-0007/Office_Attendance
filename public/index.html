@@ -337,6 +337,7 @@
               <button type="button" class="admin-nav-tab active" data-target="admin-tab-today">Today's Attendance</button>
               <button type="button" class="admin-nav-tab" data-target="admin-tab-networks">Office Wi-Fi & IP</button>
               <button type="button" class="admin-nav-tab" data-target="admin-tab-employees">Employees</button>
+              <button type="button" class="admin-nav-tab" data-target="admin-tab-audit">Audit Trail</button>
             </div>
           </div>
 
@@ -636,6 +637,39 @@
             </div>
           </div>
 
+          <!-- TAB 4: Audit Logs Trail (Problem 11) -->
+          <div id="admin-tab-audit" class="admin-tab-pane">
+            <div class="admin-list-card glass-panel">
+              <div class="section-header-row">
+                <div>
+                  <h3>Security & Administrative Audit Trail</h3>
+                  <p>Immutable log of logins, attendance events, and network modifications</p>
+                </div>
+                <button type="button" id="btn-refresh-audit" class="btn-secondary btn-sm">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+                  Refresh
+                </button>
+              </div>
+
+              <div class="table-responsive">
+                <table class="data-table" id="audit-logs-table">
+                  <thead>
+                    <tr>
+                      <th>Timestamp</th>
+                      <th>User</th>
+                      <th>Action</th>
+                      <th>Details</th>
+                      <th>IP Address</th>
+                    </tr>
+                  </thead>
+                  <tbody id="audit-logs-tbody">
+                    <!-- Populated dynamically via JS -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
         </div>
       </section>
 
@@ -662,6 +696,78 @@
         </p>
         <div class="modal-actions">
           <button type="button" id="btn-modal-close" class="btn-primary btn-block">Understood</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Force Initial PIN Change (Problem 6) -->
+    <div id="modal-change-pin" class="modal-overlay hidden">
+      <div class="modal-card glass-panel">
+        <div class="modal-header-icon" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+        </div>
+        <h2 class="modal-title">Change Default Security PIN</h2>
+        <p class="modal-desc" style="margin-bottom: 1.25rem;">
+          Your account is currently using the initial default PIN (<code>1234</code>). For security, you must set a new PIN before proceeding.
+        </p>
+
+        <form id="form-change-pin" class="standard-form">
+          <div class="input-group">
+            <label for="new-pin-input" class="input-label">New Security PIN (Min 4 digits)</label>
+            <input type="password" id="new-pin-input" class="form-input" required minlength="4" maxlength="20" placeholder="e.g. 7824 or secure pass">
+          </div>
+
+          <div class="input-group">
+            <label for="confirm-pin-input" class="input-label">Confirm New PIN</label>
+            <input type="password" id="confirm-pin-input" class="form-input" required minlength="4" maxlength="20" placeholder="Re-enter new PIN">
+          </div>
+
+          <div id="change-pin-error" class="form-error-msg hidden" style="color: #f87171; font-size: 0.85rem; margin-bottom: 0.75rem;"></div>
+
+          <button type="submit" id="btn-submit-change-pin" class="btn-primary btn-block">
+            <span>Update PIN & Continue</span>
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal: Explicit Wi-Fi Network Confirmation (Problem 10) -->
+    <div id="modal-confirm-wifi" class="modal-overlay hidden">
+      <div class="modal-card glass-panel">
+        <div class="modal-header-icon" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8;">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12.55a11 11 0 0 1 14.08 0"></path>
+            <path d="M1.42 9a16 16 0 0 1 21.16 0"></path>
+            <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+            <line x1="12" y1="20" x2="12.01" y2="20"></line>
+          </svg>
+        </div>
+        <h2 class="modal-title">Authorize Office Wi-Fi</h2>
+        <p class="modal-desc">
+          Are you sure you want to authorize the detected network as your official Office Wi-Fi?
+        </p>
+
+        <div class="detected-confirm-box" style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 1rem; margin: 1rem 0; text-align: center;">
+          <span style="font-size: 0.8rem; color: var(--text-muted); display: block;">Detected Network IP</span>
+          <span id="confirm-modal-detected-ip" class="font-mono" style="font-size: 1.3rem; font-weight: 700; color: #38bdf8;">--</span>
+        </div>
+
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem;">
+          All employees connected through this IP will be verified as being in the office. Hotspots and other networks will be rejected.
+        </p>
+
+        <label class="checkbox-container" style="margin-bottom: 1.25rem;">
+          <input type="checkbox" id="confirm-replace-networks" checked>
+          <span class="checkmark"></span>
+          <span class="checkbox-label" style="font-size: 0.85rem;">Replace existing authorized networks</span>
+        </label>
+
+        <div style="display: flex; gap: 0.75rem;">
+          <button type="button" id="btn-cancel-wifi-confirm" class="btn-secondary" style="flex: 1;">Cancel</button>
+          <button type="button" id="btn-proceed-wifi-confirm" class="btn-primary" style="flex: 1;">Confirm & Authorize</button>
         </div>
       </div>
     </div>

@@ -1765,21 +1765,25 @@ body::before {
   padding: 2.25rem 2rem;
   text-align: center;
   background: #131929;
-  border: 1px solid rgba(239, 68, 68, 0.35);
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 30px rgba(239, 68, 68, 0.2);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
 }
 
-.modal-header-icon.error-icon {
-  width: 72px;
-  height: 72px;
+.modal-header-icon {
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
-  background: rgba(239, 68, 68, 0.15);
-  border: 2px solid rgba(239, 68, 68, 0.35);
-  color: var(--danger);
   display: flex;
   align-items: center;
   justify-content: center;
   margin: 0 auto 1.25rem auto;
+}
+
+.modal-header-icon.error-icon {
+  background: rgba(239, 68, 68, 0.15);
+  border: 2px solid rgba(239, 68, 68, 0.35);
+  color: var(--danger);
 }
 
 .modal-title {

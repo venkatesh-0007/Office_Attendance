@@ -21,6 +21,7 @@ async function authenticate(req, res, next) {
           role: session.role,
           department: session.department,
           employee_code: session.employee_code,
+          must_change_pin: Boolean(session.must_change_pin),
           token
         };
       }

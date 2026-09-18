@@ -8,7 +8,6 @@
   // Application State
   const state = {
     currentUser: null,
-    token: localStorage.getItem('pulseoffice_token') || '',
     todayAttendance: null,
     network: {
       clientIp: '--',
@@ -25,6 +24,7 @@
       absentCount: 0,
       lateCount: 0
     },
+    adminAuditLogs: [],
     durationInterval: null,
     clockInterval: null,
     networkPollInterval: null,
@@ -97,7 +97,6 @@
     adminDetectedLocalIp: document.getElementById('admin-detected-local-ip'),
     adminDetectedStatus: document.getElementById('admin-detected-status'),
     btnSetCurrentWifi: document.getElementById('btn-set-current-wifi'),
-    btnClearAllNetworks: document.getElementById('btn-clear-all-networks'),
     formAddNetwork: document.getElementById('form-add-network'),
     netInputName: document.getElementById('net-input-name'),
     netInputIp: document.getElementById('net-input-ip'),
@@ -112,28 +111,42 @@
     empPinInput: document.getElementById('emp-pin'),
     employeesDirectoryTbody: document.getElementById('employees-directory-tbody'),
 
-    // Modal & Toast
+    // Admin Audit Logs
+    auditLogsTbody: document.getElementById('audit-logs-tbody'),
+    btnRefreshAudit: document.getElementById('btn-refresh-audit'),
+
+    // Modals
     modalNetworkBlocked: document.getElementById('modal-network-blocked'),
     modalDetectedIp: document.getElementById('modal-detected-ip'),
     btnModalClose: document.getElementById('btn-modal-close'),
+
+    modalChangePin: document.getElementById('modal-change-pin'),
+    formChangePin: document.getElementById('form-change-pin'),
+    newPinInput: document.getElementById('new-pin-input'),
+    confirmPinInput: document.getElementById('confirm-pin-input'),
+    changePinError: document.getElementById('change-pin-error'),
+
+    modalConfirmWifi: document.getElementById('modal-confirm-wifi'),
+    confirmModalDetectedIp: document.getElementById('confirm-modal-detected-ip'),
+    confirmReplaceNetworks: document.getElementById('confirm-replace-networks'),
+    btnCancelWifiConfirm: document.getElementById('btn-cancel-wifi-confirm'),
+    btnProceedWifiConfirm: document.getElementById('btn-proceed-wifi-confirm'),
+
     toastContainer: document.getElementById('toast-container')
   };
 
   // -------------------------------------------------------------
-  // API Fetch Helper
+  // API Fetch Helper (Strictly HttpOnly Cookie-based Authentication)
   // -------------------------------------------------------------
   async function apiRequest(endpoint, options = {}) {
     const headers = options.headers || {};
     headers['Content-Type'] = 'application/json';
 
-    if (state.token) {
-      headers['Authorization'] = `Bearer ${state.token}`;
-    }
-
     try {
       const res = await fetch(endpoint, {
         ...options,
-        headers
+        headers,
+        credentials: 'same-origin'
       });
 
       const data = await res.json().catch(() => ({}));
@@ -141,6 +154,8 @@
       if (!res.ok) {
         if (res.status === 403 && data.code === 'NETWORK_NOT_AUTHORIZED') {
           showNetworkBlockedModal(data.network?.clientIp || state.network.clientIp);
+        } else if (res.status === 403 && data.code === 'MUST_CHANGE_PIN') {
+          showChangePinModal();
         }
         const error = new Error(data.error || `HTTP error ${res.status}`);
         error.status = res.status;
@@ -189,6 +204,19 @@
 
   function closeNetworkBlockedModal() {
     elements.modalNetworkBlocked.classList.add('hidden');
+  }
+
+  function showChangePinModal() {
+    if (elements.modalChangePin) {
+      elements.modalChangePin.classList.remove('hidden');
+      if (elements.changePinError) elements.changePinError.classList.add('hidden');
+    }
+  }
+
+  function hideChangePinModal() {
+    if (elements.modalChangePin) {
+      elements.modalChangePin.classList.add('hidden');
+    }
   }
 
   // -------------------------------------------------------------
@@ -307,8 +335,10 @@
       state.todayAttendance = data.attendance;
       renderEmployeeAttendanceState();
     } catch (err) {
-      console.error('Failed to load today attendance:', err);
-      showToast('Could not fetch attendance status', 'error');
+      if (err.status !== 403) {
+        console.error('Failed to load today attendance:', err);
+        showToast('Could not fetch attendance status', 'error');
+      }
     }
   }
 
@@ -495,6 +525,7 @@
     await fetchAdminAttendance();
     await fetchAdminNetworks();
     await fetchAdminEmployees();
+    await fetchAdminAuditLogs();
   }
 
   async function fetchAdminAttendance() {
@@ -681,6 +712,59 @@
     `).join('');
   }
 
+  // Admin Audit Logs Trail (Problem 11)
+  async function fetchAdminAuditLogs() {
+    try {
+      const data = await apiRequest('/api/admin/audit-logs');
+      state.adminAuditLogs = data.logs || [];
+      renderAdminAuditLogs();
+    } catch (err) {
+      console.warn('Failed to fetch audit logs:', err);
+    }
+  }
+
+  function renderAdminAuditLogs() {
+    if (!elements.auditLogsTbody) return;
+
+    if (!state.adminAuditLogs || state.adminAuditLogs.length === 0) {
+      elements.auditLogsTbody.innerHTML = `
+        <tr>
+          <td colspan="5" class="text-center py-4" style="color: var(--text-muted);">
+            No audit logs recorded yet.
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    elements.auditLogsTbody.innerHTML = state.adminAuditLogs.map(log => {
+      let badgeClass = 'badge-office';
+      if (log.action.includes('SUCCESS') || log.action.includes('AUTHORIZED') || log.action.includes('IN')) {
+        badgeClass = 'badge-present';
+      } else if (log.action.includes('FAILED') || log.action.includes('DELETED')) {
+        badgeClass = 'badge-absent';
+      } else if (log.action.includes('PIN') || log.action.includes('CREATED')) {
+        badgeClass = 'badge-late';
+      }
+
+      let timeFormatted = log.created_at;
+      try {
+        const d = new Date(log.created_at);
+        timeFormatted = d.toLocaleString();
+      } catch (e) {}
+
+      return `
+        <tr>
+          <td class="font-mono" style="font-size: 0.8rem; color: var(--text-muted);">${timeFormatted}</td>
+          <td><strong>${log.user_name || 'System'}</strong></td>
+          <td><span class="badge ${badgeClass}">${log.action}</span></td>
+          <td style="font-size: 0.85rem;">${log.details || '—'}</td>
+          <td class="font-mono" style="font-size: 0.8rem; color: #38bdf8;">${log.ip_address || '—'}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
   // -------------------------------------------------------------
   // Digital Clock
   // -------------------------------------------------------------
@@ -720,15 +804,12 @@
           body: JSON.stringify({ email, pin })
         });
 
-        state.token = data.token;
         state.currentUser = data.user;
-        if (elements.rememberDevice.checked) {
-          localStorage.setItem('pulseoffice_token', data.token);
-        }
+        showToast(`Welcome, ${data.user.name}!`, 'success');
 
-        showToast(`Welcome back, ${data.user.name}!`, 'success');
-
-        if (data.user.role === 'admin') {
+        if (data.user.must_change_pin) {
+          showChangePinModal();
+        } else if (data.user.role === 'admin') {
           switchView('admin');
         } else {
           switchView('employee');
@@ -738,15 +819,63 @@
       }
     });
 
+    // Forced PIN Change Form (Problem 6)
+    if (elements.formChangePin) {
+      elements.formChangePin.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const newPin = elements.newPinInput.value.trim();
+        const confirmPin = elements.confirmPinInput.value.trim();
+
+        if (newPin.length < 4) {
+          elements.changePinError.textContent = 'PIN must be at least 4 digits.';
+          elements.changePinError.classList.remove('hidden');
+          return;
+        }
+
+        if (newPin !== confirmPin) {
+          elements.changePinError.textContent = 'PINs do not match. Please re-enter.';
+          elements.changePinError.classList.remove('hidden');
+          return;
+        }
+
+        if (newPin === '1234' || newPin === '0000' || newPin === '1111') {
+          elements.changePinError.textContent = 'PIN is too weak. Please choose a secure non-default PIN.';
+          elements.changePinError.classList.remove('hidden');
+          return;
+        }
+
+        try {
+          await apiRequest('/api/auth/change-pin', {
+            method: 'POST',
+            body: JSON.stringify({ newPin })
+          });
+
+          if (state.currentUser) {
+            state.currentUser.must_change_pin = false;
+          }
+
+          hideChangePinModal();
+          showToast('PIN updated successfully. Your account is secured!', 'success');
+
+          if (state.currentUser?.role === 'admin') {
+            switchView('admin');
+          } else {
+            switchView('employee');
+          }
+        } catch (err) {
+          elements.changePinError.textContent = err.message || 'Failed to update PIN.';
+          elements.changePinError.classList.remove('hidden');
+        }
+      });
+    }
+
     // Logout button
     elements.logoutBtn.addEventListener('click', async () => {
       try {
         await apiRequest('/api/auth/logout', { method: 'POST' });
       } catch (e) {}
-      state.token = '';
       state.currentUser = null;
       state.todayAttendance = null;
-      localStorage.removeItem('pulseoffice_token');
       showToast('Logged out successfully', 'info');
       switchView('login');
     });
@@ -756,7 +885,7 @@
     elements.btnCheckOut.addEventListener('click', handleCheckOut);
     elements.btnRefreshNetwork.addEventListener('click', async () => {
       await checkNetworkStatus();
-      showToast('Office network connection checked', 'info');
+      showToast('Office network connection verified', 'info');
     });
     elements.btnRefreshEmpHistory.addEventListener('click', loadEmployeeHistory);
 
@@ -778,6 +907,10 @@
         const targetId = tab.getAttribute('data-target');
         const targetPane = document.getElementById(targetId);
         if (targetPane) targetPane.classList.add('active');
+
+        if (targetId === 'admin-tab-audit') {
+          fetchAdminAuditLogs();
+        }
       });
     });
 
@@ -825,35 +958,41 @@
       showToast('Exporting attendance CSV...', 'success');
     });
 
-    // Admin 1-Click: Set Current Wi-Fi as Office Network
-    elements.btnSetCurrentWifi.addEventListener('click', async () => {
-      try {
-        const res = await apiRequest('/api/admin/networks/set-current', {
-          method: 'POST',
-          body: JSON.stringify({ mode: 'both' })
-        });
-
-        showToast(res.message || 'Office Wi-Fi updated!', 'success');
-        await fetchAdminNetworks();
-        await checkNetworkStatus();
-      } catch (err) {
-        showToast(err.message, 'error');
+    // Admin: Set Current Wi-Fi with Explicit Confirmation (Problem 10)
+    elements.btnSetCurrentWifi.addEventListener('click', () => {
+      const detectedIp = elements.adminDetectedPublicIp?.textContent || state.network.clientIp;
+      if (elements.confirmModalDetectedIp) {
+        elements.confirmModalDetectedIp.textContent = detectedIp;
+      }
+      if (elements.modalConfirmWifi) {
+        elements.modalConfirmWifi.classList.remove('hidden');
       }
     });
 
-    // Admin: Clear All Authorized Networks
-    elements.btnClearAllNetworks.addEventListener('click', async () => {
-      if (confirm('Clear all office networks? Attendance will be blocked until an office Wi-Fi is authorized.')) {
+    if (elements.btnCancelWifiConfirm) {
+      elements.btnCancelWifiConfirm.addEventListener('click', () => {
+        elements.modalConfirmWifi.classList.add('hidden');
+      });
+    }
+
+    if (elements.btnProceedWifiConfirm) {
+      elements.btnProceedWifiConfirm.addEventListener('click', async () => {
+        const replaceAll = elements.confirmReplaceNetworks ? elements.confirmReplaceNetworks.checked : false;
         try {
-          await apiRequest('/api/admin/networks/clear-all', { method: 'POST' });
-          showToast('All authorized networks cleared.', 'info');
+          const res = await apiRequest('/api/admin/networks/set-current', {
+            method: 'POST',
+            body: JSON.stringify({ confirmed: true, replaceAll })
+          });
+
+          elements.modalConfirmWifi.classList.add('hidden');
+          showToast(res.message || 'Office Wi-Fi authorized successfully!', 'success');
           await fetchAdminNetworks();
           await checkNetworkStatus();
         } catch (err) {
           showToast(err.message, 'error');
         }
-      }
-    });
+      });
+    }
 
     // Admin: Add Custom Network Form
     elements.formAddNetwork.addEventListener('submit', async (e) => {
@@ -868,7 +1007,7 @@
           body: JSON.stringify({ name, ip_or_cidr, description })
         });
 
-        showToast('Office network added!', 'success');
+        showToast('Office network authorized!', 'success');
         elements.formAddNetwork.reset();
         await fetchAdminNetworks();
         await checkNetworkStatus();
@@ -881,6 +1020,13 @@
       await fetchAdminNetworks();
       showToast('Network list refreshed', 'info');
     });
+
+    if (elements.btnRefreshAudit) {
+      elements.btnRefreshAudit.addEventListener('click', async () => {
+        await fetchAdminAuditLogs();
+        showToast('Audit logs refreshed', 'info');
+      });
+    }
 
     // Admin: Register Employee Form
     elements.formAddEmployee.addEventListener('submit', async (e) => {
@@ -918,7 +1064,7 @@
   }
 
   // -------------------------------------------------------------
-  // Initial Boot
+  // Initial Boot (Cookie-only session detection)
   // -------------------------------------------------------------
   async function initApp() {
     startDigitalClock();
@@ -927,22 +1073,22 @@
     // Check initial network status
     await checkNetworkStatus();
 
-    // Auto-login if token stored
-    if (state.token) {
-      try {
-        const data = await apiRequest('/api/auth/me');
+    // Auto-login check via HttpOnly cookie
+    try {
+      const data = await apiRequest('/api/auth/me');
+      if (data && data.user) {
         state.currentUser = data.user;
-        if (data.user.role === 'admin') {
+        if (data.user.must_change_pin) {
+          showChangePinModal();
+        } else if (data.user.role === 'admin') {
           switchView('admin');
         } else {
           switchView('employee');
         }
-      } catch (err) {
-        state.token = '';
-        localStorage.removeItem('pulseoffice_token');
+      } else {
         switchView('login');
       }
-    } else {
+    } catch (err) {
       switchView('login');
     }
 

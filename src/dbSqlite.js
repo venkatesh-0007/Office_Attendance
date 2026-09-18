@@ -2,8 +2,19 @@ const { DatabaseSync } = require('node:sqlite');
 const crypto = require('node:crypto');
 const path = require('node:path');
 
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'attendance.db');
-const db = new DatabaseSync(DB_PATH);
+function getDbInstance() {
+  const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'attendance.db');
+  return new DatabaseSync(dbPath);
+}
+
+let db = getDbInstance();
+
+// Re-initialize DB instance if DB_PATH changes (e.g. during test runs)
+function reloadDb() {
+  db = getDbInstance();
+  initDb();
+  return db;
+}
 
 // Helper for password/PIN hashing
 function hashPin(pin, salt = crypto.randomBytes(16).toString('hex')) {
@@ -37,6 +48,7 @@ function initDb() {
       department TEXT,
       pin_hash TEXT NOT NULL,
       salt TEXT NOT NULL,
+      must_change_pin INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
 
@@ -73,6 +85,16 @@ function initDb() {
       created_at TEXT NOT NULL,
       FOREIGN KEY(employee_id) REFERENCES employees(id)
     );
+
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      user_name TEXT,
+      action TEXT NOT NULL,
+      details TEXT,
+      ip_address TEXT,
+      created_at TEXT NOT NULL
+    );
   `);
 
   seedInitialData();
@@ -86,8 +108,8 @@ function seedInitialData() {
   if (adminCheck.count === 0) {
     const { hash, salt } = hashPin(defaultPin);
     const insertEmp = db.prepare(`
-      INSERT INTO employees (employee_code, name, email, role, department, pin_hash, salt, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO employees (employee_code, name, email, role, department, pin_hash, salt, must_change_pin, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
     `);
     insertEmp.run('ADM-001', 'Office Administrator', 'admin@office.local', 'admin', 'Management', hash, salt, now);
   }
@@ -96,17 +118,17 @@ function seedInitialData() {
   if (venCheck.count === 0) {
     const { hash, salt } = hashPin(defaultPin);
     const insertEmp = db.prepare(`
-      INSERT INTO employees (employee_code, name, email, role, department, pin_hash, salt, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO employees (employee_code, name, email, role, department, pin_hash, salt, must_change_pin, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
     `);
     insertEmp.run('EMP-101', 'Ven', 'ven@office.local', 'employee', 'Engineering', hash, salt, now);
   }
 }
 
-// Database helper functions (all async to match Firebase adapter interface)
 const dbHelpers = {
   db,
   initDb,
+  reloadDb,
   hashPin,
   verifyPin,
   getLocalDateString,
@@ -117,11 +139,11 @@ const dbHelpers = {
     return stmt.get(email.toLowerCase().trim()) || null;
   },
   async getEmployeeById(id) {
-    const stmt = db.prepare('SELECT id, employee_code, name, email, role, department, created_at FROM employees WHERE id = ?');
+    const stmt = db.prepare('SELECT id, employee_code, name, email, role, department, must_change_pin, created_at FROM employees WHERE id = ?');
     return stmt.get(id) || null;
   },
   async getAllEmployees() {
-    const stmt = db.prepare('SELECT id, employee_code, name, email, role, department, created_at FROM employees ORDER BY role DESC, name ASC');
+    const stmt = db.prepare('SELECT id, employee_code, name, email, role, department, must_change_pin, created_at FROM employees ORDER BY role DESC, name ASC');
     return stmt.all();
   },
   async createEmployee({ name, email, role = 'employee', department, pin }) {
@@ -132,29 +154,37 @@ const dbHelpers = {
     const code = `EMP-${String(101 + count).padStart(3, '0')}`;
 
     const stmt = db.prepare(`
-      INSERT INTO employees (employee_code, name, email, role, department, pin_hash, salt, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO employees (employee_code, name, email, role, department, pin_hash, salt, must_change_pin, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
     `);
     const res = stmt.run(code, name.trim(), email.toLowerCase().trim(), role, department || 'General', hash, salt, now);
     return await this.getEmployeeById(res.lastInsertRowid);
   },
+  async updatePin(employeeId, newPin) {
+    const { hash, salt } = hashPin(newPin);
+    const stmt = db.prepare('UPDATE employees SET pin_hash = ?, salt = ?, must_change_pin = 0 WHERE id = ?');
+    stmt.run(hash, salt, employeeId);
+  },
 
   // Sessions
-  async createSession(employeeId, userAgent = '') {
+  async createSession(employeeId, role = 'employee', userAgent = '') {
     const token = crypto.randomBytes(32).toString('hex');
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    // Security improvement: Admins have shorter sessions (4 hours) vs trusted employees (30 days)
+    const sessionDurationMs = role === 'admin' ? 4 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000;
+    const expiresAt = new Date(now.getTime() + sessionDurationMs).toISOString();
+
     const stmt = db.prepare(`
       INSERT INTO sessions (token, employee_id, expires_at, user_agent, created_at)
       VALUES (?, ?, ?, ?, ?)
     `);
     stmt.run(token, employeeId, expiresAt, userAgent, now.toISOString());
-    return { token, expiresAt };
+    return { token, expiresAt, maxAgeMs: sessionDurationMs };
   },
   async getSession(token) {
     if (!token) return null;
     const stmt = db.prepare(`
-      SELECT s.*, e.name, e.email, e.role, e.department, e.employee_code
+      SELECT s.*, e.name, e.email, e.role, e.department, e.employee_code, e.must_change_pin
       FROM sessions s
       JOIN employees e ON s.employee_id = e.id
       WHERE s.token = ? AND datetime(s.expires_at) > datetime('now')
@@ -192,12 +222,8 @@ const dbHelpers = {
     const stmt = db.prepare('DELETE FROM office_networks');
     stmt.run();
   },
-  async toggleNetwork(id, isActive) {
-    const stmt = db.prepare('UPDATE office_networks SET is_active = ? WHERE id = ?');
-    stmt.run(isActive ? 1 : 0, id);
-  },
 
-  // Attendance
+  // Attendance (Guaranteed concurrency-safe with UNIQUE constraint)
   async getTodayAttendance(employeeId, dateStr = getLocalDateString()) {
     const stmt = db.prepare('SELECT * FROM attendance WHERE employee_id = ? AND date = ?');
     return stmt.get(employeeId, dateStr) || null;
@@ -257,10 +283,23 @@ const dbHelpers = {
     query += ' ORDER BY a.date DESC, a.check_in_time DESC';
     const stmt = db.prepare(query);
     return stmt.all(...params);
+  },
+
+  // Audit Logs
+  async addAuditLog({ userId, userName, action, details, ipAddress }) {
+    const now = new Date().toISOString();
+    const stmt = db.prepare(`
+      INSERT INTO audit_logs (user_id, user_name, action, details, ip_address, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(userId || null, userName || 'System', action, details || '', ipAddress || '', now);
+  },
+  async getAuditLogs(limit = 50) {
+    const stmt = db.prepare('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT ?');
+    return stmt.all(limit);
   }
 };
 
-// Initialize DB
 initDb();
 
 module.exports = dbHelpers;

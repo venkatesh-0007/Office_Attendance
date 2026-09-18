@@ -5,19 +5,19 @@ const dbHelpers = require('./db');
 
 let cachedPublicIp = null;
 let lastPublicIpFetch = 0;
-const CACHE_TTL_MS = 10000; // 10 seconds cache
+const CACHE_TTL_MS = 10000;
 
 /**
- * Clean and normalize an IP address string.
- * Converts IPv4-mapped IPv6 (::ffff:192.168.1.1) to 192.168.1.1.
+ * Clean, sanitize and validate an IP address string.
  */
 function normalizeIp(ipString) {
   if (!ipString) return '127.0.0.1';
-  let cleaned = ipString.trim();
+  let cleaned = String(ipString).trim();
 
-  // If list from X-Forwarded-For, take the client (leftmost) IP
+  // If comma-separated, take the leftmost valid IP (or rightmost depending on proxy)
   if (cleaned.includes(',')) {
-    cleaned = cleaned.split(',')[0].trim();
+    const parts = cleaned.split(',').map(s => s.trim());
+    cleaned = parts[0];
   }
 
   // Remove port if present
@@ -39,7 +39,36 @@ function normalizeIp(ipString) {
 }
 
 /**
- * Get the machine's active non-internal IPv4 local interfaces.
+ * Safely extract connecting client IP without blindly trusting client headers.
+ * - On Vercel: x-real-ip is guaranteed by Vercel edge.
+ * - On Cloudflare: cf-connecting-ip is authoritative.
+ * - Otherwise: uses Express validated req.ip or socket remote address.
+ */
+function getClientIp(req) {
+  // During automated unit/integration tests only, support x-test-ip
+  if (process.env.NODE_ENV === 'test' && req.headers['x-test-ip']) {
+    return normalizeIp(req.headers['x-test-ip']);
+  }
+
+  let rawIp = null;
+
+  // On Vercel: Vercel edge sets x-real-ip and x-vercel-forwarded-for
+  if (process.env.VERCEL || req.headers['x-vercel-id']) {
+    rawIp = req.headers['x-real-ip'] || req.headers['x-vercel-forwarded-for'];
+  } else if (process.env.TRUST_CLOUDFLARE && req.headers['cf-connecting-ip']) {
+    rawIp = req.headers['cf-connecting-ip'];
+  } else if (req.ip) {
+    // Standard Express proxy trust (app.set('trust proxy', 1))
+    rawIp = req.ip;
+  } else {
+    rawIp = req.socket?.remoteAddress;
+  }
+
+  return normalizeIp(rawIp || '127.0.0.1');
+}
+
+/**
+ * Get machine's active local interfaces (for local dev server).
  */
 function getLocalInterfaces() {
   const nets = os.networkInterfaces();
@@ -69,7 +98,7 @@ function getLocalInterfaces() {
 }
 
 /**
- * Resolve the current public WAN IP of the network.
+ * Resolve current public WAN IP of the network.
  */
 function fetchPublicIp() {
   const now = Date.now();
@@ -103,16 +132,13 @@ function fetchPublicIp() {
   });
 }
 
-/**
- * Force-refresh public IP cache immediately (e.g. after admin updates network).
- */
 function invalidatePublicIpCache() {
   cachedPublicIp = null;
   lastPublicIpFetch = 0;
 }
 
 /**
- * Check if a candidate IP matches an office network rule (CIDR or specific IP).
+ * Check if candidate IP matches an office network rule.
  */
 function isIpInNetwork(candidateIpStr, ruleStr) {
   if (!candidateIpStr || !ruleStr) return false;
@@ -144,16 +170,9 @@ function isIpInNetwork(candidateIpStr, ruleStr) {
 
 /**
  * Authoritative Network Verification for incoming HTTP request.
- * - Extracts connecting IP (x-forwarded-for, x-real-ip, or socket remoteAddress).
- * - If client is on loopback (the host machine accessing localhost), checks the host machine's
- *   actual active network: its current Public IP and its local Wi-Fi interface IP.
- * - Checks candidates against all active office networks in SQLite.
  */
 async function verifyRequestNetwork(req) {
-  const forwarded = req.headers['x-forwarded-for'];
-  const realIp = req.headers['x-real-ip'];
-  const rawRemote = normalizeIp(forwarded || realIp || req.socket?.remoteAddress || '127.0.0.1');
-
+  const rawRemote = getClientIp(req);
   const isLoopback = rawRemote === '127.0.0.1' || rawRemote === '::1' || rawRemote === 'localhost';
   const activeNetworks = await dbHelpers.getActiveNetworks();
 
@@ -161,7 +180,7 @@ async function verifyRequestNetwork(req) {
   let displayIp = rawRemote;
 
   if (isLoopback) {
-    // Client is running on the host machine. Test the host machine's real network!
+    // When client runs on the local server host, evaluate the host's actual network adapter
     const publicIp = await fetchPublicIp();
     const localInterfaces = getLocalInterfaces();
 
@@ -172,7 +191,6 @@ async function verifyRequestNetwork(req) {
 
     displayIp = publicIp || (localInterfaces[0] ? localInterfaces[0].ip : '127.0.0.1');
   } else {
-    // Client is a remote phone or laptop connecting over Wi-Fi / internet
     candidateIps.push(rawRemote);
     displayIp = rawRemote;
   }
@@ -181,7 +199,7 @@ async function verifyRequestNetwork(req) {
   let matchedNetwork = null;
 
   for (const net of activeNetworks) {
-    // Loopback rules are ignored for security
+    // Loopback rules are strictly disallowed
     if (net.ip_or_cidr === '127.0.0.1' || net.ip_or_cidr === '::1') continue;
 
     for (const ip of candidateIps) {
@@ -206,9 +224,6 @@ async function verifyRequestNetwork(req) {
   };
 }
 
-/**
- * Get current system network details for Admin Wi-Fi configuration.
- */
 async function getSystemNetworkInfo() {
   const publicIp = await fetchPublicIp();
   const localInterfaces = getLocalInterfaces();
@@ -225,6 +240,7 @@ async function getSystemNetworkInfo() {
 
 module.exports = {
   normalizeIp,
+  getClientIp,
   getLocalInterfaces,
   fetchPublicIp,
   invalidatePublicIpCache,

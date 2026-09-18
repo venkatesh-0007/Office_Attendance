@@ -36,7 +36,6 @@ function getFirestore() {
 
   let credential = null;
 
-  // 1. JSON string in environment variable
   if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
     try {
       const parsed = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
@@ -44,9 +43,7 @@ function getFirestore() {
     } catch (e) {
       console.error('[Firebase] Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON:', e);
     }
-  }
-  // 2. Individual environment variables (Standard for Vercel)
-  else if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+  } else if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
     let privateKey = process.env.FIREBASE_PRIVATE_KEY;
     if (privateKey.startsWith('"') && privateKey.endsWith('"')) {
       privateKey = privateKey.slice(1, -1);
@@ -58,9 +55,7 @@ function getFirestore() {
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
       privateKey: privateKey
     });
-  }
-  // 3. Local service account JSON file
-  else {
+  } else {
     const localJsonPath = path.join(__dirname, '..', 'firebase-service-account.json');
     if (fs.existsSync(localJsonPath)) {
       const serviceAccount = JSON.parse(fs.readFileSync(localJsonPath, 'utf8'));
@@ -74,7 +69,7 @@ function getFirestore() {
     console.log('[Firebase] Connected to Firestore cloud database!');
     seedInitialAdmin();
   } else {
-    throw new Error('Firebase credentials not found. Please set FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, and FIREBASE_PRIVATE_KEY.');
+    throw new Error('Firebase credentials not found. Set FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, and FIREBASE_PRIVATE_KEY.');
   }
 
   return firestoreDb;
@@ -89,7 +84,6 @@ async function seedInitialAdmin() {
     const defaultPin = '1234';
 
     if (adminSnap.empty) {
-      console.log('[Firebase] Seeding Administrator account...');
       const { hash, salt } = hashPin(defaultPin);
       await db.collection('employees').add({
         employee_code: 'ADM-001',
@@ -99,13 +93,13 @@ async function seedInitialAdmin() {
         department: 'Management',
         pin_hash: hash,
         salt: salt,
+        must_change_pin: 1,
         created_at: now
       });
     }
 
     const venSnap = await db.collection('employees').where('email', '==', 'ven@office.local').limit(1).get();
     if (venSnap.empty) {
-      console.log('[Firebase] Seeding Employee account (Ven)...');
       const { hash, salt } = hashPin(defaultPin);
       await db.collection('employees').add({
         employee_code: 'EMP-101',
@@ -115,6 +109,7 @@ async function seedInitialAdmin() {
         department: 'Engineering',
         pin_hash: hash,
         salt: salt,
+        must_change_pin: 1,
         created_at: now
       });
     }
@@ -173,6 +168,7 @@ const firebaseHelpers = {
       department: department || 'General',
       pin_hash: hash,
       salt,
+      must_change_pin: 1,
       created_at: now
     });
 
@@ -183,16 +179,29 @@ const firebaseHelpers = {
       email: email.toLowerCase().trim(),
       role,
       department: department || 'General',
+      must_change_pin: 1,
       created_at: now
     };
   },
 
+  async updatePin(employeeId, newPin) {
+    const db = getFirestore();
+    const { hash, salt } = hashPin(newPin);
+    await db.collection('employees').doc(String(employeeId)).update({
+      pin_hash: hash,
+      salt,
+      must_change_pin: 0
+    });
+  },
+
   // Sessions
-  async createSession(employeeId, userAgent = '') {
+  async createSession(employeeId, role = 'employee', userAgent = '') {
     const db = getFirestore();
     const token = crypto.randomBytes(32).toString('hex');
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    // Admin session = 4 hours; Employee session = 30 days
+    const sessionDurationMs = role === 'admin' ? 4 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000;
+    const expiresAt = new Date(now.getTime() + sessionDurationMs).toISOString();
 
     const emp = await this.getEmployeeById(employeeId);
 
@@ -204,12 +213,13 @@ const firebaseHelpers = {
       role: emp?.role || 'employee',
       department: emp?.department || '',
       employee_code: emp?.employee_code || '',
+      must_change_pin: emp?.must_change_pin || 0,
       expires_at: expiresAt,
       user_agent: userAgent,
       created_at: now.toISOString()
     });
 
-    return { token, expiresAt };
+    return { token, expiresAt, maxAgeMs: sessionDurationMs };
   },
 
   async getSession(token) {
@@ -219,7 +229,6 @@ const firebaseHelpers = {
     if (!doc.exists) return null;
     const data = doc.data();
 
-    // Check expiration
     if (new Date(data.expires_at) <= new Date()) {
       await db.collection('sessions').doc(token).delete();
       return null;
@@ -281,24 +290,13 @@ const firebaseHelpers = {
     await batch.commit();
   },
 
-  async toggleNetwork(id, isActive) {
-    const db = getFirestore();
-    await db.collection('office_networks').doc(String(id)).update({
-      is_active: isActive ? 1 : 0
-    });
-  },
-
-  // Attendance
+  // Attendance - DETERMINISTIC DOC ID (${employeeId}_${dateStr}) GUARANTEES NO DUPLICATES!
   async getTodayAttendance(employeeId, dateStr = getLocalDateString()) {
     const db = getFirestore();
-    const snap = await db.collection('attendance')
-      .where('employee_id', '==', employeeId)
-      .where('date', '==', dateStr)
-      .limit(1)
-      .get();
+    const docId = `${employeeId}_${dateStr}`;
+    const doc = await db.collection('attendance').doc(docId).get();
 
-    if (snap.empty) return null;
-    const doc = snap.docs[0];
+    if (!doc.exists) return null;
     return { id: doc.id, ...doc.data() };
   },
 
@@ -315,10 +313,13 @@ const firebaseHelpers = {
 
   async recordCheckIn({ employeeId, name, dateStr, checkInIso, verificationMethod, isLate = false }) {
     const db = getFirestore();
+    const docId = `${employeeId}_${dateStr}`;
+    const docRef = db.collection('attendance').doc(docId);
     const now = new Date().toISOString();
     const status = isLate ? 'late' : 'in_office';
 
-    const docRef = await db.collection('attendance').add({
+    // Using .create() strictly errors with ALREADY_EXISTS if two requests hit at the exact same millisecond!
+    await docRef.create({
       employee_id: employeeId,
       name,
       date: dateStr,
@@ -331,7 +332,7 @@ const firebaseHelpers = {
     });
 
     return {
-      id: docRef.id,
+      id: docId,
       employee_id: employeeId,
       name,
       date: dateStr,
@@ -419,6 +420,28 @@ const firebaseHelpers = {
 
     list.sort((a, b) => b.date.localeCompare(a.date) || (b.check_in_time || '').localeCompare(a.check_in_time || ''));
     return list;
+  },
+
+  // Audit Logs
+  async addAuditLog({ userId, userName, action, details, ipAddress }) {
+    const db = getFirestore();
+    const now = new Date().toISOString();
+    await db.collection('audit_logs').add({
+      user_id: userId || null,
+      user_name: userName || 'System',
+      action,
+      details: details || '',
+      ip_address: ipAddress || '',
+      created_at: now
+    });
+  },
+  async getAuditLogs(limit = 50) {
+    const db = getFirestore();
+    const snap = await db.collection('audit_logs')
+      .orderBy('created_at', 'desc')
+      .limit(limit)
+      .get();
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
   }
 };
 
