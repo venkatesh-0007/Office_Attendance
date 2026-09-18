@@ -97,6 +97,17 @@ function initDb() {
     );
   `);
 
+  // Ensure must_change_pin column exists for existing databases
+  try {
+    const cols = db.prepare("PRAGMA table_info(employees)").all();
+    const hasCol = cols.some(c => c.name === 'must_change_pin');
+    if (!hasCol) {
+      db.exec("ALTER TABLE employees ADD COLUMN must_change_pin INTEGER NOT NULL DEFAULT 0;");
+    }
+  } catch (e) {
+    console.warn('[SQLite Migration warning]:', e.message);
+  }
+
   seedInitialData();
 }
 

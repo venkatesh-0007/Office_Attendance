@@ -520,12 +520,16 @@
       state.adminDate = `${year}-${month}-${day}`;
     }
 
-    elements.adminDatePicker.value = state.adminDate;
-    await checkNetworkStatus();
-    await fetchAdminAttendance();
-    await fetchAdminNetworks();
-    await fetchAdminEmployees();
-    await fetchAdminAuditLogs();
+    if (elements.adminDatePicker) {
+      elements.adminDatePicker.value = state.adminDate;
+    }
+
+    // Run independent fetches so one failure never blocks the others
+    await checkNetworkStatus().catch(console.warn);
+    await fetchAdminAttendance().catch(console.warn);
+    await fetchAdminNetworks().catch(console.warn);
+    await fetchAdminEmployees().catch(console.warn);
+    await fetchAdminAuditLogs().catch(console.warn);
   }
 
   async function fetchAdminAttendance() {
@@ -617,24 +621,39 @@
       renderAdminNetworks(data.networks);
 
       // Update Detected Network Card
-      const sys = data.system_info;
-      const cur = data.current_request;
+      const sys = data.system_info || {};
+      const cur = data.current_request || {};
+
+      const detectedWan = (sys.publicIp && sys.publicIp !== 'Unavailable')
+        ? sys.publicIp 
+        : (state.network.clientIp !== '--' ? state.network.clientIp : 'Unavailable');
 
       if (elements.adminDetectedPublicIp) {
-        elements.adminDetectedPublicIp.textContent = sys.publicIp;
+        elements.adminDetectedPublicIp.textContent = detectedWan;
       }
       if (elements.adminDetectedLocalIp) {
-        elements.adminDetectedLocalIp.textContent = `${sys.primaryLocalIp} (${sys.primarySubnet})`;
+        elements.adminDetectedLocalIp.textContent = (sys.primaryLocalIp && sys.primaryLocalIp !== 'Unavailable')
+          ? `${sys.primaryLocalIp} (${sys.primarySubnet || '255.255.255.0'})` 
+          : (state.network.clientIp !== '--' ? state.network.clientIp : '--');
       }
       if (elements.adminDetectedStatus) {
-        if (cur.is_authorized) {
-          elements.adminDetectedStatus.innerHTML = `<span class="badge badge-success">✓ Authorized Office Wi-Fi (${cur.matchedNetwork?.name || 'Matched'})</span>`;
+        const isAuth = cur.isAuthorized ?? cur.is_authorized ?? state.network.isAuthorized;
+        if (isAuth) {
+          elements.adminDetectedStatus.innerHTML = `<span class="badge badge-success">✓ Authorized Office Wi-Fi (${cur.matchedNetwork?.name || state.network.matchedNetwork?.name || 'Matched'})</span>`;
         } else {
           elements.adminDetectedStatus.innerHTML = '<span class="badge badge-danger">✗ Outside Office Network / Not Configured</span>';
         }
       }
     } catch (err) {
       console.warn('Failed to fetch networks:', err);
+      if (elements.adminDetectedPublicIp && state.network.clientIp !== '--') {
+        elements.adminDetectedPublicIp.textContent = state.network.clientIp;
+      }
+      if (elements.adminDetectedStatus) {
+        elements.adminDetectedStatus.innerHTML = state.network.isAuthorized
+          ? '<span class="badge badge-success">✓ Authorized Office Wi-Fi</span>'
+          : '<span class="badge badge-danger">✗ Outside Office Network / Not Configured</span>';
+      }
     }
   }
 
@@ -908,8 +927,14 @@
         const targetPane = document.getElementById(targetId);
         if (targetPane) targetPane.classList.add('active');
 
-        if (targetId === 'admin-tab-audit') {
+        if (targetId === 'admin-tab-networks') {
+          fetchAdminNetworks();
+        } else if (targetId === 'admin-tab-audit') {
           fetchAdminAuditLogs();
+        } else if (targetId === 'admin-tab-employees') {
+          fetchAdminEmployees();
+        } else if (targetId === 'admin-tab-today') {
+          fetchAdminAttendance();
         }
       });
     });
