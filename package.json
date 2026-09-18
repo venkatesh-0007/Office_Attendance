@@ -1,0 +1,23 @@
+{
+  "name": "office-attendance",
+  "version": "1.0.0",
+  "description": "Office Attendance Website with server-side network verification",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node src/server.js",
+    "test": "node test/attendance.test.js"
+  },
+  "keywords": [
+    "attendance",
+    "office-network",
+    "wifi-verification"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.2",
+    "ipaddr.js": "^2.2.0"
+  }
+}

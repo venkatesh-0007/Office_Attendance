@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>PulseOffice • Smart Office Attendance System</title>
+  <meta name="description" content="Secure, network-verified office attendance portal for modern teams. Works on desktop, laptop, Android, and iPhone.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="theme-dark">
+  <div id="app" class="app-root">
+
+    <!-- Top Navigation Bar -->
+    <header class="navbar" id="main-header">
+      <div class="nav-container">
+        <div class="brand-group">
+          <div class="brand-logo">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+              <polyline points="9 22 9 12 15 12 15 22"></polyline>
+            </svg>
+          </div>
+          <div class="brand-meta">
+            <span class="brand-name">PulseOffice</span>
+            <span class="brand-tagline">Office Network Verified Attendance</span>
+          </div>
+        </div>
+
+        <!-- Live Network Status Indicator Pill -->
+        <div class="header-center">
+          <div id="network-pill" class="network-pill" title="Office Wi-Fi Connection Status">
+            <span class="network-dot pulse"></span>
+            <span id="network-pill-text" class="network-pill-text">Checking Office Network...</span>
+            <span id="network-pill-ip" class="network-pill-ip">--</span>
+          </div>
+        </div>
+
+        <!-- Right Action Controls -->
+        <div class="header-right">
+          <!-- User Profile & Session Controls -->
+          <div id="user-nav-block" class="user-nav-block hidden">
+            <div class="user-info-capsule">
+              <div class="avatar-ring" id="user-avatar-initials">U</div>
+              <div class="user-text-meta">
+                <span id="nav-user-name" class="nav-user-name">User</span>
+                <span id="nav-user-role" class="nav-user-role">Role</span>
+              </div>
+            </div>
+            <button id="logout-btn" class="btn-icon" title="Sign Out" aria-label="Sign Out">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                <polyline points="16 17 21 12 16 7"></polyline>
+                <line x1="21" y1="12" x2="9" y2="12"></line>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Stage -->
+    <main class="main-container">
+
+      <!-- ======================================================== -->
+      <!-- VIEW 1: AUTHENTICATION & LOGIN SCREEN                    -->
+      <!-- ======================================================== -->
+      <section id="view-login" class="view-panel">
+        <div class="login-wrapper">
+          <div class="login-card glass-panel">
+            <div class="login-header">
+              <div class="login-badge-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                </svg>
+              </div>
+              <h1 class="login-title">Sign in to Office Portal</h1>
+              <p class="login-subtitle">Connect to the office Wi-Fi and verify your attendance</p>
+            </div>
+
+            <!-- Login Form -->
+            <form id="login-form" class="login-form">
+              <div class="input-group">
+                <label for="login-email" class="input-label">Work Email</label>
+                <div class="input-field-wrap">
+                  <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                  <input type="email" id="login-email" class="form-input" required placeholder="name@office.local" autocomplete="email" value="ven@office.local">
+                </div>
+              </div>
+
+              <div class="input-group">
+                <label for="login-pin" class="input-label">PIN / Password</label>
+                <div class="input-field-wrap">
+                  <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                  <input type="password" id="login-pin" class="form-input" required placeholder="Enter PIN" maxlength="20" autocomplete="current-password" value="1234">
+                </div>
+              </div>
+
+              <div class="form-footer-helpers">
+                <label class="checkbox-container">
+                  <input type="checkbox" id="remember-device" checked>
+                  <span class="checkmark"></span>
+                  <span class="checkbox-label">Keep me logged in on this device</span>
+                </label>
+              </div>
+
+              <button type="submit" id="btn-login-submit" class="btn-primary btn-block">
+                <span>Sign In</span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+              </button>
+            </form>
+
+            <div class="login-credential-help">
+              <div class="cred-pill">
+                <strong>Employee:</strong> <code>ven@office.local</code> (PIN: <code>1234</code>)
+              </div>
+              <div class="cred-pill">
+                <strong>Admin:</strong> <code>admin@office.local</code> (PIN: <code>1234</code>)
+              </div>
+            </div>
+
+            <div class="login-footer-notice">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+              <span>Attendance check-in is strictly verified against your office Wi-Fi network.</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================================================== -->
+      <!-- VIEW 2: EMPLOYEE ATTENDANCE DASHBOARD                    -->
+      <!-- ======================================================== -->
+      <section id="view-employee" class="view-panel hidden">
+        <div class="employee-layout">
+
+          <!-- Dynamic Greeting & Date Header -->
+          <div class="dashboard-header-card glass-panel">
+            <div class="greeting-row">
+              <div class="greeting-content">
+                <div class="greeting-pill-date" id="emp-live-date">--</div>
+                <h1 class="greeting-heading" id="emp-greeting-text">Good morning, Ven</h1>
+                <p class="greeting-subtext">Welcome to your daily office check-in portal</p>
+              </div>
+              <div class="greeting-right-clock">
+                <div class="digital-clock" id="emp-digital-clock">--:--:-- --</div>
+                <div class="clock-label">Server Synchronized Time</div>
+              </div>
+            </div>
+
+            <!-- Network Status Alert Bar -->
+            <div id="emp-network-banner" class="network-status-banner disconnected">
+              <div class="net-banner-icon">
+                <svg id="net-icon-connected" class="icon-svg hidden" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <svg id="net-icon-disconnected" class="icon-svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </div>
+              <div class="net-banner-text">
+                <strong id="emp-net-title">Checking Office Network...</strong>
+                <span id="emp-net-detail">Verifying connection to authorized office Wi-Fi...</span>
+              </div>
+              <button type="button" id="btn-refresh-network" class="btn-subtle-refresh" title="Re-check Network">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                Verify
+              </button>
+            </div>
+          </div>
+
+          <!-- Hero Attendance Action Center -->
+          <div class="action-center-grid">
+
+            <!-- Primary Status & Action Card -->
+            <div class="hero-action-card glass-panel">
+              <div class="card-status-headline">
+                <span class="status-kicker">TODAY'S ATTENDANCE STATUS</span>
+                <div class="status-badge-container">
+                  <div id="emp-status-badge" class="status-badge status-not-checked-in">
+                    <span class="status-badge-dot"></span>
+                    <span id="emp-status-badge-text">Not Checked In</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Main Dynamic Action Button Area -->
+              <div class="action-button-stage">
+                <!-- Check-in Button -->
+                <button type="button" id="btn-check-in" class="btn-hero-action btn-check-in">
+                  <div class="btn-hero-content">
+                    <div class="btn-hero-icon-wrap">
+                      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+                        <polyline points="10 17 15 12 10 7"></polyline>
+                        <line x1="15" y1="12" x2="3" y2="12"></line>
+                      </svg>
+                    </div>
+                    <span class="btn-hero-title">I’M IN OFFICE</span>
+                    <span class="btn-hero-subtitle">Tap to mark arrival with verified office Wi-Fi</span>
+                  </div>
+                  <div class="btn-ripple"></div>
+                </button>
+
+                <!-- Check-out Button -->
+                <button type="button" id="btn-check-out" class="btn-hero-action btn-check-out hidden">
+                  <div class="btn-hero-content">
+                    <div class="btn-hero-icon-wrap">
+                      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                        <polyline points="16 17 21 12 16 7"></polyline>
+                        <line x1="21" y1="12" x2="9" y2="12"></line>
+                      </svg>
+                    </div>
+                    <span class="btn-hero-title">CHECK OUT</span>
+                    <span class="btn-hero-subtitle">Record your departure timestamp for today</span>
+                  </div>
+                </button>
+
+                <!-- Completed Card for when already checked out -->
+                <div id="status-completed-card" class="status-completed-card hidden">
+                  <div class="completed-icon">
+                    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                      <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                    </svg>
+                  </div>
+                  <h3>Day Completed!</h3>
+                  <p>Your attendance has been recorded for today. Rest well!</p>
+                </div>
+              </div>
+
+              <!-- Real-Time Metrics Strip -->
+              <div class="metrics-strip">
+                <div class="metric-block">
+                  <span class="metric-label">Check-In Time</span>
+                  <span id="metric-check-in-time" class="metric-value font-mono">—</span>
+                </div>
+                <div class="metric-divider"></div>
+                <div class="metric-block">
+                  <span class="metric-label">Check-Out Time</span>
+                  <span id="metric-check-out-time" class="metric-value font-mono">—</span>
+                </div>
+                <div class="metric-divider"></div>
+                <div class="metric-block">
+                  <span class="metric-label">Total Duration</span>
+                  <span id="metric-work-duration" class="metric-value font-mono highlight">—</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Information & Security Guide Side Card -->
+            <div class="side-info-card glass-panel">
+              <div class="side-info-header">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                <h3>Network Verification</h3>
+              </div>
+              <ul class="guidelines-list">
+                <li>
+                  <span class="step-num">1</span>
+                  <div>
+                    <strong>Connect to Office Wi-Fi</strong>
+                    <p>Ensure your laptop or mobile is connected to the authorized office Wi-Fi network.</p>
+                  </div>
+                </li>
+                <li>
+                  <span class="step-num">2</span>
+                  <div>
+                    <strong>Manual Mark Required</strong>
+                    <p>You must manually click <em>“I'm in Office”</em>. Attendance is never marked automatically.</p>
+                  </div>
+                </li>
+                <li>
+                  <span class="step-num">3</span>
+                  <div>
+                    <strong>Hotspots & VPNs Blocked</strong>
+                    <p>Mobile hotspots, home Wi-Fi, and VPNs are detected and blocked by the server.</p>
+                  </div>
+                </li>
+              </ul>
+
+              <div class="side-device-pill">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                <span>Works on Laptops, Phones & Desktops</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Employee Personal Attendance History Table -->
+          <div class="history-section glass-panel">
+            <div class="section-header-row">
+              <div>
+                <h2 class="section-title">My Attendance History</h2>
+                <p class="section-subtitle">Real records verified via office network</p>
+              </div>
+              <button type="button" id="btn-refresh-emp-history" class="btn-secondary btn-sm">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+                Refresh
+              </button>
+            </div>
+
+            <div class="table-responsive">
+              <table class="data-table" id="emp-history-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Check In</th>
+                    <th>Check Out</th>
+                    <th>Working Duration</th>
+                    <th>Network Method</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="emp-history-tbody">
+                  <tr>
+                    <td colspan="6" class="text-center py-4">No records yet.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ======================================================== -->
+      <!-- VIEW 3: ADMIN DASHBOARD & MANAGEMENT                     -->
+      <!-- ======================================================== -->
+      <section id="view-admin" class="view-panel hidden">
+        <div class="admin-layout">
+
+          <!-- Admin Sub-Navigation Tabs -->
+          <div class="admin-top-bar glass-panel">
+            <div class="admin-brand-block">
+              <h1 class="admin-view-title">Office Attendance Console</h1>
+              <p class="admin-view-subtitle">Real-time attendance tracking & office Wi-Fi configuration</p>
+            </div>
+            <div class="admin-tab-nav">
+              <button type="button" class="admin-nav-tab active" data-target="admin-tab-today">Today's Attendance</button>
+              <button type="button" class="admin-nav-tab" data-target="admin-tab-networks">Office Wi-Fi & IP</button>
+              <button type="button" class="admin-nav-tab" data-target="admin-tab-employees">Employees</button>
+            </div>
+          </div>
+
+          <!-- TAB 1: Today's Attendance & History -->
+          <div id="admin-tab-today" class="admin-tab-pane active">
+
+            <!-- Summary KPI Metric Cards -->
+            <div class="kpi-grid">
+              <div class="kpi-card card-present">
+                <div class="kpi-icon-wrap">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                </div>
+                <div class="kpi-content">
+                  <span class="kpi-label">Today's Present</span>
+                  <span id="kpi-present-count" class="kpi-value">0</span>
+                  <span class="kpi-subtext">Completed or present today</span>
+                </div>
+              </div>
+
+              <div class="kpi-card card-office">
+                <div class="kpi-icon-wrap">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+                </div>
+                <div class="kpi-content">
+                  <span class="kpi-label">Currently in Office</span>
+                  <span id="kpi-in-office-count" class="kpi-value">0</span>
+                  <span class="kpi-subtext">Checked in, not yet departed</span>
+                </div>
+              </div>
+
+              <div class="kpi-card card-absent">
+                <div class="kpi-icon-wrap">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+                </div>
+                <div class="kpi-content">
+                  <span class="kpi-label">Absent</span>
+                  <span id="kpi-absent-count" class="kpi-value">0</span>
+                  <span class="kpi-subtext">Registered staff not checked in</span>
+                </div>
+              </div>
+
+              <div class="kpi-card card-late">
+                <div class="kpi-icon-wrap">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                </div>
+                <div class="kpi-content">
+                  <span class="kpi-label">Late Arrivals</span>
+                  <span id="kpi-late-count" class="kpi-value">0</span>
+                  <span class="kpi-subtext">Arrived after 09:30 AM</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Attendance Table Card -->
+            <div class="admin-table-card glass-panel">
+              <!-- Controls: Date picker, search, status filter, and Export CSV -->
+              <div class="table-toolbar">
+                <div class="toolbar-left">
+                  <!-- Date Navigation -->
+                  <div class="date-stepper">
+                    <button type="button" id="btn-date-prev" class="btn-icon-stepper" title="Previous Day">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                    </button>
+                    <input type="date" id="admin-date-picker" class="date-picker-input">
+                    <button type="button" id="btn-date-next" class="btn-icon-stepper" title="Next Day">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                    </button>
+                    <button type="button" id="btn-date-today" class="btn-subtle-today">Today</button>
+                  </div>
+
+                  <!-- Search Employee -->
+                  <div class="search-input-wrap">
+                    <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                    <input type="text" id="admin-search-input" class="search-input" placeholder="Search employee or department...">
+                  </div>
+
+                  <!-- Status Filter -->
+                  <div class="filter-select-wrap">
+                    <select id="admin-status-filter" class="filter-select">
+                      <option value="ALL">All Statuses</option>
+                      <option value="In Office">In Office</option>
+                      <option value="Present">Present</option>
+                      <option value="Late">Late</option>
+                      <option value="Absent">Absent</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="toolbar-right">
+                  <!-- Export CSV Button -->
+                  <button type="button" id="btn-export-csv" class="btn-export">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    <span>Export CSV</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Attendance Table -->
+              <div class="table-responsive">
+                <table class="data-table admin-attendance-table" id="admin-attendance-table">
+                  <thead>
+                    <tr>
+                      <th>Employee</th>
+                      <th>Check In</th>
+                      <th>Check Out</th>
+                      <th>Duration</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="admin-attendance-tbody">
+                    <!-- Populated dynamically via JS -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- TAB 2: Office Networks & IP Configuration -->
+          <div id="admin-tab-networks" class="admin-tab-pane">
+            <div class="networks-grid">
+
+              <!-- Left: Current Connection & 1-Click Setup -->
+              <div class="net-card-current glass-panel">
+                <div class="card-title-group">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                  <div>
+                    <h3>Office Wi-Fi Setup</h3>
+                    <p>Configure the authorized network for attendance</p>
+                  </div>
+                </div>
+
+                <!-- Detected Network Box -->
+                <div class="detected-ip-box">
+                  <span class="detected-ip-label">Detected Public Gateway (WAN IP)</span>
+                  <div class="detected-ip-value font-mono" id="admin-detected-public-ip">Loading...</div>
+
+                  <div class="detected-local-row">
+                    <span class="detected-ip-label">Local Wi-Fi IP / Subnet:</span>
+                    <span class="font-mono text-cyan" id="admin-detected-local-ip">--</span>
+                  </div>
+
+                  <div class="detected-ip-status" id="admin-detected-status">
+                    <span class="badge badge-absent">Checking...</span>
+                  </div>
+                </div>
+
+                <!-- 1-Click Update Wi-Fi Button -->
+                <button type="button" id="btn-set-current-wifi" class="btn-primary btn-block">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>
+                  <span>Set This Wi-Fi as Office Network</span>
+                </button>
+
+                <button type="button" id="btn-clear-all-networks" class="btn-secondary btn-block btn-sm" style="color: #f87171;">
+                  <span>Clear Authorized Networks</span>
+                </button>
+
+                <hr class="card-divider">
+
+                <!-- Add Custom IP or CIDR Form -->
+                <form id="form-add-network" class="network-add-form">
+                  <h4>Add Specific Office IP or CIDR Subnet</h4>
+                  <p class="form-hint">Enter an office static public IP or router subnet (e.g. <code>103.140.155.115</code> or <code>192.168.1.0/24</code>).</p>
+
+                  <div class="input-group">
+                    <label for="net-input-name" class="input-label">Network Name</label>
+                    <input type="text" id="net-input-name" class="form-input" required placeholder="e.g. Main Office Wi-Fi">
+                  </div>
+
+                  <div class="input-group">
+                    <label for="net-input-ip" class="input-label">IP Address or CIDR Range</label>
+                    <input type="text" id="net-input-ip" class="form-input font-mono" required placeholder="e.g. 103.140.155.115 or 192.168.1.0/24">
+                  </div>
+
+                  <div class="input-group">
+                    <label for="net-input-desc" class="input-label">Description (Optional)</label>
+                    <input type="text" id="net-input-desc" class="form-input" placeholder="e.g. Office Fiber Gateway">
+                  </div>
+
+                  <button type="submit" class="btn-secondary btn-block">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                    <span>Add Network</span>
+                  </button>
+                </form>
+              </div>
+
+              <!-- Right: Active Authorized Networks List -->
+              <div class="net-card-list glass-panel">
+                <div class="section-header-row">
+                  <div>
+                    <h3>Active Authorized Office Networks</h3>
+                    <p>Only devices connected through these networks can mark attendance</p>
+                  </div>
+                  <button type="button" id="btn-refresh-networks" class="btn-icon" title="Refresh List">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+                  </button>
+                </div>
+
+                <div class="table-responsive">
+                  <table class="data-table" id="networks-table">
+                    <thead>
+                      <tr>
+                        <th>Network Name</th>
+                        <th>Authorized IP / Subnet</th>
+                        <th>Description</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody id="networks-tbody">
+                      <!-- Populated dynamically -->
+                    </tbody>
+                  </table>
+                </div>
+
+                <div class="security-advisory-box">
+                  <div class="advisory-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                  </div>
+                  <div class="advisory-text">
+                    <strong>How Office Wi-Fi Verification Works:</strong>
+                    When employees are on the Office Wi-Fi, all their devices exit through the office router's Public IP or local subnet. When an employee switches to a phone hotspot or home network, their IP changes immediately and the backend strictly blocks their attendance.
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- TAB 3: Employee Management -->
+          <div id="admin-tab-employees" class="admin-tab-pane">
+            <div class="employees-admin-grid">
+
+              <!-- Add Employee Card -->
+              <div class="admin-form-card glass-panel">
+                <h3>Register Employee</h3>
+                <p class="form-hint">Create an employee account for attendance tracking.</p>
+
+                <form id="form-add-employee" class="standard-form">
+                  <div class="input-group">
+                    <label for="emp-name" class="input-label">Full Name</label>
+                    <input type="text" id="emp-name" class="form-input" required placeholder="e.g. Alex Morgan">
+                  </div>
+                  <div class="input-group">
+                    <label for="emp-email" class="input-label">Work Email</label>
+                    <input type="email" id="emp-email" class="form-input" required placeholder="alex@office.local">
+                  </div>
+                  <div class="input-group">
+                    <label for="emp-dept" class="input-label">Department</label>
+                    <input type="text" id="emp-dept" class="form-input" placeholder="e.g. Engineering">
+                  </div>
+                  <div class="input-group">
+                    <label for="emp-role" class="input-label">Role</label>
+                    <select id="emp-role" class="form-input">
+                      <option value="employee">Employee</option>
+                      <option value="admin">Administrator</option>
+                    </select>
+                  </div>
+                  <div class="input-group">
+                    <label for="emp-pin" class="input-label">Security PIN</label>
+                    <input type="password" id="emp-pin" class="form-input" required placeholder="4-digit PIN" maxlength="10">
+                  </div>
+                  <button type="submit" class="btn-primary btn-block">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    <span>Register Employee</span>
+                  </button>
+                </form>
+              </div>
+
+              <!-- Employees Directory -->
+              <div class="admin-list-card glass-panel">
+                <div class="section-header-row">
+                  <div>
+                    <h3>Staff Directory</h3>
+                    <p>Registered employee accounts</p>
+                  </div>
+                </div>
+
+                <div class="table-responsive">
+                  <table class="data-table" id="employees-directory-table">
+                    <thead>
+                      <tr>
+                        <th>Code</th>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Department</th>
+                        <th>Role</th>
+                      </tr>
+                    </thead>
+                    <tbody id="employees-directory-tbody">
+                      <!-- Populated dynamically -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Global Security Warning Modal: Network Verification Blocked -->
+    <div id="modal-network-blocked" class="modal-overlay hidden">
+      <div class="modal-card glass-panel shake-anim">
+        <div class="modal-header-icon error-icon">
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+            <line x1="12" y1="9" x2="12" y2="13"></line>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+        </div>
+        <h2 class="modal-title">Office Network Verification Required</h2>
+        <div class="modal-notice-banner">
+          <p class="modal-message-highlight">
+            “You must be connected to the office Wi-Fi to mark attendance.”
+          </p>
+        </div>
+        <p class="modal-desc">
+          Your current connection was detected from an unauthorized network (<span id="modal-detected-ip" class="font-mono">--</span>). Attendance can only be marked when connected directly to the office Wi-Fi.
+        </p>
+        <div class="modal-actions">
+          <button type="button" id="btn-modal-close" class="btn-primary btn-block">Understood</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
